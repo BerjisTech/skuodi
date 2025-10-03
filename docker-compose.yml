@@ -1,0 +1,102 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_PASSWORD: kouru
+      POSTGRES_USER: kouru
+      POSTGRES_DB: kouru
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: kouru
+      MINIO_ROOT_PASSWORD: kourupass
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio:/data
+
+  livekit:
+    image: livekit/livekit-server:latest
+    command: >
+      --dev
+      --bind 0.0.0.0
+      --config /etc/livekit.yaml
+    environment:
+      LIVEKIT_KEYS: ${LIVEKIT_API_KEY}:${LIVEKIT_API_SECRET}
+    volumes:
+      - ./ops/livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - '7880:7880'
+      - '7881:7881'
+      - '50000-50100:50000-50100/udp'
+
+  coturn:
+    image: instrumentisto/coturn
+    environment:
+      REALM: kouru.local
+      TOTAL_QUOTA: 1200
+      BIND_ADDR: 0.0.0.0
+      MIN_PORT: 49152
+      MAX_PORT: 49252
+    ports:
+      - '3478:3478/udp'
+      - '3478:3478/tcp'
+      - '49152-49252:49152-49252/udp'
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+      - minio
+      - livekit
+    ports:
+      - '3001:3001'
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    env_file: .env
+    depends_on:
+      - api
+    ports:
+      - '4200:80'
+
+  yws:
+    image: node:22
+    working_dir: /workspace
+    command: bash -lc "npx y-websocket --port 1234"
+    ports:
+      - '1234:1234'
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./ops/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - '80:80'
+    depends_on:
+      - web
+      - api
+      - livekit
+      - yws
+
+volumes:
+  pgdata:
+  minio:

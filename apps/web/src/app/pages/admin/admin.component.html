@@ -1,0 +1,11 @@
+<section>
+  <h1 class="text-3xl font-semibold">Admin</h1>
+  <p class="mt-1 text-sm text-slate-400">Operational tools for platform maintainers.</p>
+
+  <div class="mt-8 grid gap-4 md:grid-cols-2">
+    <article *ngFor="let panel of panels" class="rounded-xl border border-slate-800 bg-slate-900/40 p-5">
+      <h2 class="text-lg font-semibold">{{ panel.title }}</h2>
+      <p class="mt-2 text-sm text-slate-400">{{ panel.description }}</p>
+    </article>
+  </div>
+</section>

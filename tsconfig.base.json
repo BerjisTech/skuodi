@@ -1,0 +1,25 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "rootDir": ".",
+    "sourceMap": true,
+    "declaration": false,
+    "moduleResolution": "node",
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "target": "es2015",
+    "module": "esnext",
+    "lib": ["es2020", "dom"],
+    "skipLibCheck": true,
+    "skipDefaultLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@kouru/collab": ["libs/collab/src/index.ts"],
+      "@kouru/geometry": ["libs/geometry/src/index.ts"],
+      "@kouru/livekit": ["libs/livekit/src/index.ts"],
+      "@kouru/three": ["libs/three/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "tmp"]
+}

@@ -1,0 +1,36 @@
+<section class="flex items-center justify-between">
+  <div>
+    <h1 class="text-3xl font-semibold">Marketplace</h1>
+    <p class="mt-1 text-sm text-slate-400">Plans, furniture and material packs curated for Kouru.</p>
+  </div>
+  <button class="btn" type="button">Upload asset</button>
+</section>
+
+<div class="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+  <article
+    *ngFor="let asset of assets$ | async"
+    class="flex flex-col rounded-2xl border border-slate-800 bg-slate-900/40 shadow"
+  >
+    <div class="aspect-square w-full overflow-hidden rounded-t-2xl bg-slate-800/70">
+      <img
+        *ngIf="asset.previewUrl; else placeholder"
+        [src]="asset.previewUrl"
+        alt="Preview"
+        class="h-full w-full object-cover"
+      />
+      <ng-template #placeholder>
+        <div class="flex h-full items-center justify-center text-xs text-slate-500">Preview coming soon</div>
+      </ng-template>
+    </div>
+    <div class="flex flex-1 flex-col p-4">
+      <h2 class="text-base font-semibold">
+        <a [routerLink]="['/marketplace', asset.id]" class="hover:text-brand-300">{{ asset.title }}</a>
+      </h2>
+      <p class="mt-2 flex-1 text-sm text-slate-400 line-clamp-3">{{ asset.description || 'No description yet.' }}</p>
+      <div class="mt-4 flex items-center justify-between text-sm text-slate-300">
+        <span>{{ asset.priceCents / 100 | currency }}</span>
+        <span class="text-xs uppercase tracking-wide text-slate-500">{{ asset.license }}</span>
+      </div>
+    </div>
+  </article>
+</div>

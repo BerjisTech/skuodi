@@ -1,0 +1,26 @@
+{
+  "name": "three",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/three/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/three",
+        "main": "libs/three/src/index.ts",
+        "tsConfig": "libs/three/tsconfig.lib.json",
+        "assets": ["libs/three/*.md"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/three/jest.config.ts"
+      }
+    }
+  }
+}

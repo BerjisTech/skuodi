@@ -1,0 +1,30 @@
+<ng-container *ngIf="asset$ | async as asset; else loading">
+  <div class="flex items-center gap-2 text-sm text-slate-400">
+    <a routerLink="/marketplace" class="text-brand-300">← Back to marketplace</a>
+    <span>•</span>
+    <span>{{ asset.kind | uppercase }}</span>
+  </div>
+  <div class="mt-6 grid gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+    <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+      <div class="aspect-video overflow-hidden rounded-xl bg-slate-900">
+        <img *ngIf="asset.previewUrl" [src]="asset.previewUrl" alt="Preview" class="h-full w-full object-contain" />
+      </div>
+      <p class="mt-4 text-sm text-slate-300">{{ asset.description || 'No description provided.' }}</p>
+    </div>
+    <aside class="space-y-4">
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+        <h1 class="text-2xl font-semibold">{{ asset.title }}</h1>
+        <p class="mt-2 text-sm text-slate-400">{{ asset.license | uppercase }} license</p>
+        <p class="mt-4 text-3xl font-semibold">{{ asset.priceCents / 100 | currency }}</p>
+        <button class="btn mt-4 w-full" type="button">Add to library</button>
+      </div>
+      <div class="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 text-sm text-slate-400">
+        <p>Owner: {{ asset.owner.displayName }}</p>
+        <p class="mt-2">Uploaded {{ asset.createdAt | date: 'medium' }}</p>
+      </div>
+    </aside>
+  </div>
+</ng-container>
+<ng-template #loading>
+  <p class="text-sm text-slate-400">Loading asset…</p>
+</ng-template>

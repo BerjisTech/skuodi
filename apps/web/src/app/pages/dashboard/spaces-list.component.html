@@ -1,0 +1,34 @@
+<section class="flex items-start justify-between">
+  <div>
+    <h1 class="text-3xl font-semibold">Spaces</h1>
+    <p class="mt-1 text-sm text-slate-400">Collaborative environments for teams and partners.</p>
+  </div>
+  <form class="flex gap-2" [formGroup]="form" (ngSubmit)="create()">
+    <input
+      class="w-48 rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+      placeholder="New space name"
+      formControlName="name"
+      type="text"
+    />
+    <button class="btn" type="submit">Create</button>
+  </form>
+</section>
+
+<div class="mt-8 grid gap-4 md:grid-cols-2">
+  <article
+    *ngFor="let space of (spaces$ | async) ?? []"
+    class="rounded-xl border border-slate-800 bg-slate-900/50 p-6 shadow">
+    <h2 class="text-lg font-semibold">
+      <a [routerLink]="['/spaces', space.id]" class="hover:text-brand-300">{{ space.name }}</a>
+    </h2>
+    <p class="mt-2 text-xs text-slate-400">Created {{ space.createdAt | date: 'mediumDate' }}</p>
+    <div class="mt-4 flex items-center gap-3 text-xs text-slate-400">
+      <span>Owner: {{ space.owner.displayName }}</span>
+      <a [routerLink]="['/spaces', space.id, 'projects']" class="text-brand-300">Open projects</a>
+    </div>
+  </article>
+</div>
+
+<div *ngIf="((spaces$ | async) ?? []).length === 0" class="mt-12 text-center text-sm text-slate-500">
+  <p>No spaces yet. Create one to get started.</p>
+</div>

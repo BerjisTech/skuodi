@@ -1,0 +1,24 @@
+<section class="max-w-2xl">
+  <h1 class="text-3xl font-semibold">Account</h1>
+  <p class="mt-1 text-sm text-slate-400">Manage your personal profile used across spaces.</p>
+
+  <ng-container *ngIf="user$ | async as user">
+    <form class="mt-8 space-y-4" [formGroup]="form" (ngSubmit)="save()">
+      <div>
+        <label class="block text-sm font-medium text-slate-300">Display Name</label>
+        <input
+          class="mt-1 w-full rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+          formControlName="displayName"
+        />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-300">Avatar URL</label>
+        <input
+          class="mt-1 w-full rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+          formControlName="avatarUrl"
+        />
+      </div>
+      <button class="btn" type="submit">Save changes</button>
+    </form>
+  </ng-container>
+</section>

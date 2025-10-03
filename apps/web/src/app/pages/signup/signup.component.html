@@ -1,0 +1,40 @@
+<section class="mx-auto mt-16 max-w-md rounded-2xl border border-slate-800 bg-slate-900/60 p-8 shadow-xl backdrop-blur">
+  <h1 class="text-2xl font-semibold">Create your workspace</h1>
+  <p class="mt-1 text-sm text-slate-400">Start designing collaborative spaces in minutes.</p>
+
+  <form class="mt-6 space-y-4" [formGroup]="form" (ngSubmit)="submit()">
+    <div>
+      <label class="block text-sm font-medium text-slate-300">Display Name</label>
+      <input
+        class="mt-1 w-full rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+        formControlName="displayName"
+        placeholder="Jane Architect"
+      />
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-300">Email</label>
+      <input
+        class="mt-1 w-full rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+        formControlName="email"
+        type="email"
+        placeholder="you@example.com"
+      />
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-slate-300">Password</label>
+      <input
+        class="mt-1 w-full rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+        formControlName="password"
+        type="password"
+        placeholder="At least 8 characters"
+      />
+    </div>
+    <p *ngIf="error()" class="text-sm text-red-400">{{ error() }}</p>
+    <button class="btn w-full" type="submit" [disabled]="loading()">Create account</button>
+  </form>
+
+  <p class="mt-6 text-center text-sm text-slate-400">
+    Already have an account?
+    <a routerLink="/login" class="text-brand-300">Sign in</a>
+  </p>
+</section>
