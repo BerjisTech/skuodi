@@ -2,142 +2,6 @@
   display: block;
 }
 
-.editor-shell {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.editor-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  border-bottom: 1px solid rgba(30, 41, 59, 0.65);
-  padding-bottom: 1.25rem;
-}
-
-.editor-header__title {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.editor-header__back {
-  font-size: 0.85rem;
-  color: #38bdf8;
-  text-decoration: none;
-}
-
-.editor-header__name {
-  font-size: 1.75rem;
-  font-weight: 600;
-  margin: 0;
-}
-
-.editor-header__eyebrow {
-  margin: 0;
-  font-size: 0.85rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(148, 163, 184, 0.7);
-}
-
-.editor-header__status {
-  margin: 0;
-  font-size: 0.75rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: rgba(248, 250, 252, 0.55);
-}
-
-.editor-header__status--ready {
-  color: #34d399;
-}
-
-.editor-header__actions {
-  display: flex;
-  gap: 0.75rem;
-}
-
-.editor-header__actions--single {
-  font-size: 0.85rem;
-  color: rgba(148, 163, 184, 0.85);
-  align-items: center;
-  gap: 0.5rem;
-  max-width: 320px;
-}
-
-.editor-body {
-  display: grid;
-  gap: 1.5rem;
-  grid-template-columns: 280px minmax(0, 1fr) 280px;
-}
-
-.editor-tools,
-.editor-sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.tool-groups {
-  background: rgba(15, 23, 42, 0.65);
-  border: 1px solid rgba(30, 41, 59, 0.7);
-  border-radius: 1rem;
-  padding: 1rem;
-}
-
-.tool-groups__title {
-  margin: 0 0 0.75rem;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: rgba(148, 163, 184, 0.8);
-}
-
-.tool-groups__grid {
-  display: grid;
-  gap: 0.5rem;
-}
-
-.tool-button {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  width: 100%;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid rgba(51, 65, 85, 0.6);
-  border-radius: 0.75rem;
-  background: rgba(15, 23, 42, 0.55);
-  color: #e2e8f0;
-  text-align: left;
-  transition: border-color 0.2s ease, background 0.2s ease;
-}
-
-.tool-button:hover {
-  border-color: rgba(148, 163, 184, 0.85);
-}
-
-.tool-button--active {
-  border-color: #38bdf8;
-  background: rgba(8, 145, 178, 0.25);
-}
-
-.tool-button__icon {
-  font-size: 1.1rem;
-}
-
-.tool-button__label {
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-
-.tool-button__hint {
-  display: block;
-  font-size: 0.7rem;
-  color: rgba(148, 163, 184, 0.9);
-}
-
 .inspector {
   background: rgba(15, 23, 42, 0.65);
   border: 1px solid rgba(30, 41, 59, 0.7);
@@ -239,11 +103,6 @@
   gap: 1.5rem;
 }
 
-.viewport-panels {
-  display: grid;
-  gap: 1.5rem;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
 
 .viewport-panel {
   background: rgba(15, 23, 42, 0.65);
@@ -284,6 +143,9 @@
   border-radius: 1rem;
   overflow: hidden;
 }
+
+
+
 
 .viewport-panel--scene {
   min-height: 22rem;
@@ -402,6 +264,8 @@
   box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
 }
 
+
+
 .asset-card {
   display: flex;
   justify-content: space-between;
@@ -508,6 +372,11 @@
   }
 
   .viewport-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .viewport-panels--split,
+  .viewport-panels--single {
     grid-template-columns: minmax(0, 1fr);
   }
 }

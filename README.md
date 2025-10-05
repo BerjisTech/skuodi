@@ -80,6 +80,14 @@ Run pending migrations (the helper ensures Docker Desktop/Engine is running and 
 yarn db:migrate
 ```
 
+For local workflows you can also use the convenience wrapper in `scripts/db-migrate.sh`. It boots the required Docker services (Postgres, Redis, MinIO, plus LiveKit/Yjs when defined) and proxies the TypeORM CLI to your host environment:
+
+```bash
+./scripts/db-migrate.sh run      # apply new migrations
+./scripts/db-migrate.sh status   # list applied migrations
+./scripts/db-migrate.sh revert   # roll back the last migration
+```
+
 That command keeps track of executed migrations inside the `kouru_schema_migrations` table (similar to Rails). To add a new migration:
 
 ```bash
@@ -144,5 +152,6 @@ Each library and app has its own Jest + ESLint configuration managed through Nx.
 - Implement payments behind the `PAYMENTS_ENABLED` flag
 - Add guards for route-level auth and organization based authorization
 - Expand tests (unit + e2e) and add CI workflows as needed
+- Track the evolving Plan Studio roadmap in `docs/plan-studio-roadmap.md`
 
 Happy building! 🎨

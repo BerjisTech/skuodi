@@ -1,4 +1,27 @@
 <div class="editor-shell">
+  <div class="planner-onboarding" *ngIf="isSingleUserMode && onboardingVisible()">
+    <div class="planner-onboarding__panel">
+      <header class="planner-onboarding__header">
+        <p class="planner-onboarding__eyebrow">Quick start</p>
+        <h2>Welcome to Plan Studio</h2>
+        <p>Drop into a ready-made layout or start from an empty canvas. You can revisit this later from the sidebar.</p>
+      </header>
+      <div class="planner-onboarding__templates">
+        <article class="template-card" *ngFor="let template of quickStartTemplates">
+          <div class="template-card__body">
+            <h3>{{ template.name }}</h3>
+            <p>{{ template.description }}</p>
+          </div>
+          <button type="button" class="btn" (click)="applyQuickStartTemplate(template)">Load layout</button>
+        </article>
+      </div>
+      <footer class="planner-onboarding__footer">
+        <button type="button" class="btn-secondary" (click)="startBlankPlan()">Start blank</button>
+        <button type="button" class="btn-tertiary" (click)="dismissOnboarding()">Hide for now</button>
+      </footer>
+    </div>
+  </div>
+
   <header class="editor-header">
     <div class="editor-header__title">
       <ng-container *ngIf="!isSingleUserMode; else singleHeader">
@@ -51,7 +74,93 @@
         <header class="inspector__header">
           <h2>Properties</h2>
         </header>
-        <ng-container *ngIf="selectedElement() as element; else emptyInspector">
+        <ng-container *ngIf="selectedWall() as wall; else inspectorRoom">
+          <div class="inspector__group">
+            <p class="inspector__note">Wall · {{ getWallOrientation(wall) === 'horizontal' ? 'Horizontal' : 'Vertical' }}</p>
+            <div class="inspector__field">
+              <label class="inspector__label" for="wall-length">Length (m)</label>
+              <input
+                id="wall-length"
+                type="number"
+                class="inspector__input"
+                [value]="getWallLength(wall) | number: '1.2-2'"
+                step="0.1"
+                min="0.1"
+                (change)="updateSelectedWallLength($any($event.target).value)"
+              />
+            </div>
+            <div class="inspector__field wall-mode">
+              <span>Adjust:</span>
+              <button
+                type="button"
+                class="btn-tertiary"
+                [class.wall-mode__button--active]="wallResizeMode() === 'start'"
+                (click)="setWallResizeMode('start')"
+              >
+                {{ getWallOrientation(wall) === 'horizontal' ? 'Left' : 'Down' }}
+              </button>
+              <button
+                type="button"
+                class="btn-tertiary"
+                [class.wall-mode__button--active]="wallResizeMode() === 'both'"
+                (click)="setWallResizeMode('both')"
+              >Both</button>
+              <button
+                type="button"
+                class="btn-tertiary"
+                [class.wall-mode__button--active]="wallResizeMode() === 'end'"
+                (click)="setWallResizeMode('end')"
+              >
+                {{ getWallOrientation(wall) === 'horizontal' ? 'Right' : 'Up' }}
+              </button>
+            </div>
+            <div class="inspector__field">
+              <label class="inspector__label" for="wall-thickness">Thickness (m)</label>
+              <input
+                id="wall-thickness"
+                type="number"
+                class="inspector__input"
+                [value]="wall.thickness | number: '1.2-2'"
+                step="0.05"
+                min="0.05"
+                (change)="updateSelectedWallThickness($any($event.target).value)"
+              />
+            </div>
+            <div class="inspector__field">
+              <label class="inspector__label" for="wall-height">Height (m)</label>
+              <input
+                id="wall-height"
+                type="number"
+                class="inspector__input"
+                [value]="wall.height | number: '1.2-2'"
+                step="0.1"
+                min="0.5"
+                (change)="updateSelectedWallHeight($any($event.target).value)"
+              />
+            </div>
+          </div>
+        </ng-container>
+        <ng-template #inspectorRoom>
+          <ng-container *ngIf="selectedRoom() as room; else inspectorElement">
+            <div class="inspector__group">
+              <p class="inspector__note">Room · {{ room.area | number: '1.2-2' }} m²</p>
+              <p class="inspector__note">Perimeter {{ room.perimeter | number: '1.2-2' }} m</p>
+              <div class="inspector__field">
+                <label class="inspector__label" for="room-type">Room Type</label>
+                <input
+                  id="room-type"
+                  class="inspector__input"
+                  type="text"
+                  [value]="room.roomType || ''"
+                  (change)="updateSelectedRoomType($any($event.target).value)"
+                  placeholder="e.g. Kitchen, Bedroom"
+                />
+              </div>
+            </div>
+          </ng-container>
+        </ng-template>
+        <ng-template #inspectorElement>
+          <ng-container *ngIf="selectedElement() as element; else emptyInspector">
           <div class="inspector__group">
             <label class="inspector__label" for="element-name">Name</label>
             <input
@@ -89,7 +198,8 @@
             <button type="button" class="btn-secondary" (click)="duplicateSelectedElement()">Duplicate</button>
             <button type="button" class="btn-danger" (click)="deleteSelectedElement()">Delete</button>
           </div>
-        </ng-container>
+          </ng-container>
+        </ng-template>
         <ng-template #emptyInspector>
           <p class="inspector__placeholder">Pick any geometry in the plan to edit its dimensions.</p>
         </ng-template>
@@ -97,8 +207,27 @@
     </aside>
 
     <main class="editor-viewport">
-      <div class="viewport-panels">
-        <section class="viewport-panel viewport-panel--plan">
+      <div style="align-self: flex-end; display: inline-flex; gap: 0.5rem;">
+        <button
+          type="button"
+          class="btn-tertiary"
+          *ngFor="let option of viewOptions"
+          (click)="setViewMode(option.id)"
+          [class.tool-button--active]="isViewMode(option.id)"
+          style="display: flex; flex-direction: column; gap: 0.05rem; font-size: 0.8rem;"
+        >
+          <span>{{ option.label }}</span>
+          <small
+            style="font-size: 0.7rem;"
+            [style.color]="isViewMode(option.id) ? 'rgba(226, 232, 240, 0.9)' : 'rgba(148, 163, 184, 0.8)'"
+          >
+            {{ option.hint }}
+          </small>
+        </button>
+      </div>
+
+      <div class="viewport-panels" [ngClass]="viewportPanelsClass()">
+        <section class="viewport-panel viewport-panel--plan" *ngIf="showPlan()">
           <header class="viewport-panel__header">
             <h2>2D Layout</h2>
             <div class="viewport-panel__controls">
@@ -116,7 +245,70 @@
               (pointerup)="onPlanPointerUp($event)"
               (pointercancel)="onPlanPointerUp($event)"
               (pointerleave)="onPlanPointerLeave()"
+              (wheel)="onPlanWheel($event)"
             ></canvas>
+            <div
+              *ngIf="selectedWall() as wall"
+              class="wall-tooltip"
+              [style.left.px]="wallTooltipPosition(wall)?.x"
+              [style.top.px]="wallTooltipPosition(wall)?.y"
+            >
+              <span class="wall-tooltip__label">Length (m)</span>
+              <input
+                type="number"
+                [value]="getWallLength(wall) | number: '1.2-2'"
+                step="0.1"
+                min="0.1"
+                (change)="updateSelectedWallLength($any($event.target).value)"
+              />
+              <div class="wall-tooltip__buttons">
+                <button
+                  type="button"
+                  class="btn-tertiary"
+                  [class.wall-mode__button--active]="wallResizeMode() === 'start'"
+                  (click)="setWallResizeMode('start')"
+                >
+                  {{ getWallOrientation(wall) === 'horizontal' ? '←' : '↓' }}
+                </button>
+                <button
+                  type="button"
+                  class="btn-tertiary"
+                  [class.wall-mode__button--active]="wallResizeMode() === 'both'"
+                  (click)="setWallResizeMode('both')"
+                >
+                  ↔
+                </button>
+                <button
+                  type="button"
+                  class="btn-tertiary"
+                  [class.wall-mode__button--active]="wallResizeMode() === 'end'"
+                  (click)="setWallResizeMode('end')"
+                >
+                  {{ getWallOrientation(wall) === 'horizontal' ? '→' : '↑' }}
+                </button>
+              </div>
+            </div>
+            <div
+              *ngIf="selectedRoom() as room"
+              class="wall-tooltip room-tooltip"
+              [style.left.px]="roomTooltipPosition(room)?.x"
+              [style.top.px]="roomTooltipPosition(room)?.y"
+            >
+              <div class="room-tooltip__stats">
+                <span>{{ room.area | number: '1.2-2' }} m²</span>
+                <span>{{ room.perimeter | number: '1.2-2' }} m</span>
+              </div>
+              <div class="room-tooltip__type">
+                <button type="button" class="btn-tertiary" (click)="cycleSelectedRoomType('prev')">‹</button>
+                <input
+                  type="text"
+                  [value]="room.roomType || ''"
+                  placeholder="Label"
+                  (change)="updateSelectedRoomType($any($event.target).value)"
+                />
+                <button type="button" class="btn-tertiary" (click)="cycleSelectedRoomType('next')">›</button>
+              </div>
+            </div>
             <div class="cursor-layer">
               <div *ngIf="localCursor() as local" class="cursor" [style.left.px]="local.x" [style.top.px]="local.y">
                 <span class="cursor__badge" [style.borderColor]="local.color">{{ local.label }}</span>
@@ -135,12 +327,13 @@
           </div>
         </section>
 
-        <section class="viewport-panel viewport-panel--scene">
+        <section class="viewport-panel viewport-panel--scene" *ngIf="showScene()">
           <header class="viewport-panel__header">
             <h2>3D Scene</h2>
-            <div class="viewport-panel__controls">
-              <span>Orbit</span>
-              <span>Sunset</span>
+            <div class="viewport-panel__controls viewport-panel__controls--buttons">
+              <button type="button" class="btn-tertiary" (click)="setScenePreset('top')">Top</button>
+              <button type="button" class="btn-tertiary" (click)="setScenePreset('iso')">Iso</button>
+              <button type="button" class="btn-tertiary" (click)="setScenePreset('reset')">Reset</button>
             </div>
           </header>
           <canvas #sceneCanvas class="scene-canvas"></canvas>
@@ -149,6 +342,32 @@
     </main>
 
     <aside class="editor-sidebar">
+      <section class="sidebar-card">
+        <h3>Floors</h3>
+        <ul class="floor-list">
+          <li
+            class="floor-list__item"
+            *ngFor="let floorState of floorsState()"
+            [class.floor-list__item--active]="floorState.floor.id === activeFloorId()"
+          >
+            <button type="button" class="btn-tertiary floor-list__button" (click)="setActiveFloor(floorState.floor.id)">
+              {{ floorState.floor.name }}
+            </button>
+            <button
+              type="button"
+              class="btn-tertiary floor-list__rename"
+              (click)="promptRenameFloor(floorState.floor.id, floorState.floor.name)"
+            >
+              ✎
+            </button>
+          </li>
+        </ul>
+        <div class="floor-actions">
+          <button type="button" class="btn-tertiary" (click)="addFloor()">Add Floor</button>
+          <button type="button" class="btn-tertiary" (click)="duplicateActiveFloor()" [disabled]="!activeFloorState()">Duplicate</button>
+        </div>
+      </section>
+
       <section class="sidebar-card" *ngIf="isSingleUserMode">
         <h3>Getting Started</h3>
         <ul class="starter-list">
@@ -157,6 +376,7 @@
           <li class="starter-list__item">Add doors and windows for access and daylight.</li>
           <li class="starter-list__item">Switch to 3D to verify proportions.</li>
         </ul>
+        <button type="button" class="btn-tertiary" (click)="openOnboarding()">Open quick-start templates</button>
       </section>
 
       <section class="sidebar-card">

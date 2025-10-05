@@ -1,0 +1,349 @@
+.wall-tooltip {
+  position: absolute;
+  transform: translate(-50%, -110%);
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(30, 41, 59, 0.75);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  pointer-events: auto;
+  min-width: 140px;
+  font-size: 0.75rem;
+  color: #e2e8f0;
+  z-index: 2;
+}
+
+.wall-tooltip__label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.wall-tooltip__buttons {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.wall-tooltip__buttons button {
+  flex: 1;
+  padding: 0.2rem 0;
+}
+
+.wall-tooltip__buttons button.wall-mode__button--active {
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+.wall-mode {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.wall-mode .btn-tertiary {
+  padding: 0.3rem 0.75rem;
+}
+
+.btn-tertiary.wall-mode__button--active {
+  border-color: #fbbf24;
+  color: #fbbf24;
+}
+
+.floor-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.floor-list__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.floor-list__item--active .floor-list__button {
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.floor-list__button {
+  flex: 0 0 auto;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.75rem;
+}
+
+.floor-list__rename {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.floor-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.viewport-panels {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.viewport-panels--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.viewport-panels--split {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.viewport-panel__controls--buttons {
+  gap: 0.5rem;
+}
+
+.room-tooltip {
+  transform: translate(-50%, -50%);
+  min-width: 9rem;
+}
+
+.room-tooltip__stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.room-tooltip__type {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.room-tooltip__type input {
+  width: 7.5rem;
+  text-align: center;
+  font-weight: 500;
+}
+
+.room-tooltip__type .btn-tertiary {
+  padding: 0.2rem 0.4rem;
+  min-width: unset;
+}
+
+.planner-onboarding {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.86);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 8;
+  padding: 2rem;
+}
+
+.planner-onboarding__panel {
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(30, 41, 59, 0.8);
+  border-radius: 1.5rem;
+  max-width: 720px;
+  width: 100%;
+  padding: 2.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.planner-onboarding__header h2 {
+  margin: 0.25rem 0 0;
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.planner-onboarding__header p {
+  margin: 0.5rem 0 0;
+  color: rgba(203, 213, 225, 0.9);
+  font-size: 0.95rem;
+}
+
+.planner-onboarding__eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.planner-onboarding__templates {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.template-card {
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  border-radius: 1rem;
+  background: rgba(15, 23, 42, 0.65);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.template-card__body h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.template-card__body p {
+  margin: 0.45rem 0 0;
+  font-size: 0.85rem;
+  color: rgba(203, 213, 225, 0.85);
+}
+
+.planner-onboarding__footer {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+.editor-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.editor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(30, 41, 59, 0.65);
+  padding-bottom: 1.25rem;
+}
+
+.editor-header__title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.editor-header__back {
+  font-size: 0.85rem;
+  color: #38bdf8;
+  text-decoration: none;
+}
+
+.editor-header__name {
+  font-size: 1.75rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.editor-header__eyebrow {
+  margin: 0;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.editor-header__status {
+  margin: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(248, 250, 252, 0.55);
+}
+
+.editor-header__status--ready {
+  color: #34d399;
+}
+
+.editor-header__actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.editor-header__actions--single {
+  font-size: 0.85rem;
+  color: rgba(148, 163, 184, 0.85);
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 320px;
+}
+
+.editor-body {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: 280px minmax(0, 1fr) 280px;
+}
+
+.editor-tools,
+.editor-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.tool-groups {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(30, 41, 59, 0.7);
+  border-radius: 1rem;
+  padding: 1rem;
+}
+
+.tool-groups__title {
+  margin: 0 0 0.75rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(148, 163, 184, 0.8);
+}
+
+.tool-groups__grid {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.tool-button {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.55);
+  color: #e2e8f0;
+  text-align: left;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.tool-button:hover {
+  border-color: rgba(148, 163, 184, 0.85);
+}
+
+.tool-button--active {
+  border-color: #38bdf8;
+  background: rgba(8, 145, 178, 0.25);
+}
+
+.tool-button__icon {
+  font-size: 1.1rem;
+}
+
+.tool-button__label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.tool-button__hint {
+  display: block;
+  font-size: 0.7rem;
+  color: rgba(148, 163, 184, 0.9);
+}
