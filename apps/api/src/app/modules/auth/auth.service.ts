@@ -10,6 +10,7 @@ import { PasswordService } from './password.service';
 export interface JwtPayload {
   sub: string;
   email: string;
+  isAdmin: boolean;
 }
 
 export interface AuthResult {
@@ -69,6 +70,7 @@ export class AuthService {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
+      isAdmin: user.isAdmin ?? false,
     };
     return this.jwtService.sign(payload);
   }

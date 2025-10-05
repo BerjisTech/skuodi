@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, catchError, of } from 'rxjs';
 import { Asset } from '../models';
 
 @Injectable({ providedIn: 'root' })
@@ -27,7 +27,7 @@ export class AssetsService {
 
   list(spaceId?: string): Observable<Asset[]> {
     const params = spaceId ? { params: { spaceId } } : {};
-    return this.http.get<Asset[]>('/assets', params);
+    return this.http.get<Asset[]>('/assets', params).pipe(catchError(() => of([])));
   }
 
   download(assetId: string): Observable<{ downloadUrl: string }> {

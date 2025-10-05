@@ -7,6 +7,7 @@ export class UserDto {
   avatarUrl?: string | null;
   createdAt!: Date;
   updatedAt!: Date;
+  isAdmin!: boolean;
 
   static fromEntity(entity: UserEntity): UserDto {
     return {
@@ -16,6 +17,7 @@ export class UserDto {
       avatarUrl: entity.avatarUrl ?? null,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
+      isAdmin: entity.isAdmin ?? false,
     };
   }
 }

@@ -31,6 +31,9 @@ export class UserEntity {
   @Column({ name: 'avatar_url', nullable: true })
   avatarUrl?: string | null;
 
+  @Column({ name: 'is_admin', default: false })
+  isAdmin!: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

@@ -1,6 +1,6 @@
 import { AsyncPipe, NgIf } from '@angular/common';
 import { Component, inject } from '@angular/core';
-import { RouterLink, RouterOutlet } from '@angular/router';
+import { Router, RouterLink, RouterOutlet } from '@angular/router';
 import { AuthService } from './core/services/auth.service';
 
 @Component({
@@ -12,6 +12,7 @@ import { AuthService } from './core/services/auth.service';
 })
 export class AppComponent {
   private readonly auth = inject(AuthService);
+  private readonly router = inject(Router);
   readonly user$ = this.auth.user$;
 
   constructor() {
@@ -22,5 +23,6 @@ export class AppComponent {
 
   logout() {
     this.auth.logout();
+    void this.router.navigate(['/']);
   }
 }

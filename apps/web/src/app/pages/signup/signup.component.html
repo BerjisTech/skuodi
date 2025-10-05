@@ -4,26 +4,29 @@
 
   <form class="mt-6 space-y-4" [formGroup]="form" (ngSubmit)="submit()">
     <div>
-      <label class="block text-sm font-medium text-slate-300">Display Name</label>
+      <label class="block text-sm font-medium text-slate-300" for="signup-display-name">Display Name</label>
       <input
         class="mt-1 w-full rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+        id="signup-display-name"
         formControlName="displayName"
         placeholder="Jane Architect"
       />
     </div>
     <div>
-      <label class="block text-sm font-medium text-slate-300">Email</label>
+      <label class="block text-sm font-medium text-slate-300" for="signup-email">Email</label>
       <input
         class="mt-1 w-full rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+        id="signup-email"
         formControlName="email"
         type="email"
         placeholder="you@example.com"
       />
     </div>
     <div>
-      <label class="block text-sm font-medium text-slate-300">Password</label>
+      <label class="block text-sm font-medium text-slate-300" for="signup-password">Password</label>
       <input
         class="mt-1 w-full rounded-md border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+        id="signup-password"
         formControlName="password"
         type="password"
         placeholder="At least 8 characters"

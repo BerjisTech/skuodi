@@ -19,6 +19,9 @@ export class AuthService {
     if (stored) {
       this.userSubject.next(stored.user);
       this.tokenSubject.next(stored.token);
+      void this.me().subscribe({
+        error: () => this.logout(),
+      });
     }
   }
 
@@ -60,19 +63,34 @@ export class AuthService {
   }
 
   private persist(response: AuthResponse) {
-    this.tokenSubject.next(response.token);
-    this.userSubject.next(response.user);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(response));
+    const normalized = this.normalizeResponse(response);
+    this.tokenSubject.next(normalized.token);
+    this.userSubject.next(normalized.user);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
   }
 
   private loadFromStorage(): AuthResponse | null {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
-      return JSON.parse(raw) as AuthResponse;
+      const parsed = JSON.parse(raw) as Partial<AuthResponse>;
+      if (!parsed.token || !parsed.user) {
+        return null;
+      }
+      return this.normalizeResponse(parsed as AuthResponse);
     } catch (error) {
       console.warn('Failed to parse auth storage', error);
       return null;
     }
+  }
+
+  private normalizeResponse(response: AuthResponse): AuthResponse {
+    return {
+      token: response.token,
+      user: {
+        ...response.user,
+        isAdmin: response.user.isAdmin ?? false,
+      },
+    };
   }
 }

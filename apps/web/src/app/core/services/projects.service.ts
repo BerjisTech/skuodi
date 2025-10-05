@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, catchError, of } from 'rxjs';
 import { Project, DocSnapshot } from '../models';
 
 @Injectable({ providedIn: 'root' })
@@ -12,7 +12,7 @@ export class ProjectsService {
   }
 
   list(spaceId: string): Observable<Project[]> {
-    return this.http.get<Project[]>(`/spaces/${spaceId}/projects`);
+    return this.http.get<Project[]>(`/spaces/${spaceId}/projects`).pipe(catchError(() => of([])));
   }
 
   get(projectId: string): Observable<Project> {

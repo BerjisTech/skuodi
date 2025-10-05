@@ -8,7 +8,7 @@
       class="btn"
       type="button"
       (click)="joinCall()"
-      [disabled]="joining() || !(space$ | async)"
+      [disabled]="joining() || (space$ | async) === null || (space$ | async) === undefined"
     >
       {{ livekit.room ? 'Rejoin LiveKit' : 'Join LiveKit' }}
     </button>
@@ -32,14 +32,14 @@
   </div>
   <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
     <h2 class="text-lg font-semibold">Projects</h2>
-    <div class="mt-4 space-y-3">
-      <article *ngFor="let project of projects$ | async" class="rounded-lg border border-slate-800/70 bg-slate-900/40 p-4">
+    <div class="mt-4 space-y-3" *ngIf="projects$ | async as projects">
+      <article *ngFor="let project of projects" class="rounded-lg border border-slate-800/70 bg-slate-900/40 p-4">
         <h3 class="text-base font-medium">
           <a [routerLink]="['/spaces', project.spaceId, 'projects', project.id, 'edit']" class="hover:text-brand-300">{{ project.name }}</a>
         </h3>
         <p class="mt-1 text-xs text-slate-400">Updated {{ project.updatedAt | date: 'short' }}</p>
       </article>
-      <p *ngIf="!(projects$ | async)?.length" class="text-sm text-slate-500">No projects yet.</p>
+      <p *ngIf="projects.length === 0" class="text-sm text-slate-500">No projects yet.</p>
     </div>
   </div>
 </section>

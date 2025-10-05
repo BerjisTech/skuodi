@@ -1,58 +1,217 @@
-<div class="flex items-center justify-between border-b border-slate-800 pb-4">
-  <div>
-    <a routerLink="['/spaces', (spaceId$ | async)]" class="text-sm text-brand-300">← Back to space</a>
-    <h1 class="mt-2 text-2xl font-semibold" *ngIf="project$ | async as project">{{ project.name }}</h1>
-  </div>
-  <div class="flex gap-2">
-    <button class="btn-secondary" type="button">Invite</button>
-    <button class="btn" type="button">Export</button>
-  </div>
-</div>
-
-<div class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-  <section class="rounded-xl border border-slate-800 bg-slate-900/40">
-    <header class="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400">Plan 2D</h2>
-      <div class="flex gap-2 text-xs text-slate-400">
-        <span>Snap</span>
-        <span>Grid 100mm</span>
-      </div>
-    </header>
-    <div class="relative">
-      <canvas
-        #planCanvas
-        class="h-[520px] w-full cursor-crosshair bg-slate-950"
-        (pointermove)="onCanvasPointer($event)"
-        width="1200"
-        height="800"
-      ></canvas>
-      <div *ngFor="let cursor of (cursors$ | async) | keyvalue" class="pointer-events-none absolute" [style.left.px]="cursor.value.x" [style.top.px]="cursor.value.y">
-        <span class="rounded bg-black/70 px-2 py-1 text-xs" [style.borderColor]="cursor.value.color" [style.borderWidth.px]="2" [style.borderStyle]="'solid'">
-          {{ cursor.value.name }}
-        </span>
-      </div>
+<div class="editor-shell">
+  <header class="editor-header">
+    <div class="editor-header__title">
+      <ng-container *ngIf="!isSingleUserMode; else singleHeader">
+        <a class="editor-header__back" [routerLink]="['/spaces', (spaceId$ | async)]">← Back to space</a>
+        <h1 class="editor-header__name" *ngIf="project$ | async as project">{{ project?.name }}</h1>
+        <p class="editor-header__status" [class.editor-header__status--ready]="status() === 'ready'">
+          {{ status() === 'ready' ? 'Synced and ready' : status() === 'loading' ? 'Preparing workspace…' : 'Connection issue' }}
+        </p>
+      </ng-container>
+      <ng-template #singleHeader>
+        <p class="editor-header__eyebrow">Single Designer</p>
+        <h1 class="editor-header__name">Plan Studio</h1>
+        <p class="editor-header__status editor-header__status--ready">Ready for sketching</p>
+      </ng-template>
     </div>
-  </section>
-
-  <section class="rounded-xl border border-slate-800 bg-slate-900/40">
-    <header class="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-400">Scene 3D</h2>
-      <div class="flex gap-2 text-xs text-slate-400">
-        <span>Sunset</span>
-        <span>Gizmo</span>
+    <ng-container *ngIf="!isSingleUserMode; else singleActions">
+      <div class="editor-header__actions">
+        <button class="btn-secondary" type="button">Invite</button>
+        <button class="btn" type="button">Export</button>
       </div>
-    </header>
-    <canvas #sceneCanvas class="h-[520px] w-full bg-slate-950"></canvas>
-  </section>
-</div>
+    </ng-container>
+    <ng-template #singleActions>
+      <div class="editor-header__actions editor-header__actions--single">
+        <span>Tip: start with walls, then add doors, windows, and a balcony.</span>
+      </div>
+    </ng-template>
+  </header>
 
-<section class="mt-6 grid gap-6 lg:grid-cols-2">
-  <div class="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-    <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-400">Timeline</h3>
-    <p class="mt-4 text-sm text-slate-500">Activity feed and autosave history coming soon.</p>
+  <div class="editor-body">
+    <aside class="editor-tools">
+      <section class="tool-groups" *ngFor="let group of toolGroups">
+        <h2 class="tool-groups__title">{{ group.title }}</h2>
+        <div class="tool-groups__grid">
+          <button
+            type="button"
+            class="tool-button"
+            *ngFor="let tool of group.tools"
+            (click)="selectTool(tool.id)"
+            [class.tool-button--active]="isToolSelected(tool.id)"
+            [attr.aria-pressed]="isToolSelected(tool.id)"
+          >
+            <span class="tool-button__icon" *ngIf="tool.icon">{{ tool.icon }}</span>
+            <span class="tool-button__label">{{ tool.label }}</span>
+            <span class="tool-button__hint" *ngIf="isToolSelected(tool.id)">{{ tool.description }}</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="inspector">
+        <header class="inspector__header">
+          <h2>Properties</h2>
+        </header>
+        <ng-container *ngIf="selectedElement() as element; else emptyInspector">
+          <div class="inspector__group">
+            <label class="inspector__label" for="element-name">Name</label>
+            <input
+              id="element-name"
+              class="inspector__input"
+              type="text"
+              placeholder="Element name"
+              [ngModel]="element.name"
+              (ngModelChange)="updateSelectedElementName($event)"
+            />
+            <p class="inspector__note">{{ sourceLabel(element.source) }} <span *ngIf="element.assetRef">· {{ element.assetRef }}</span></p>
+          </div>
+
+          <div class="inspector__group" *ngIf="inspectorTool() as tool">
+            <div class="inspector__field" *ngFor="let property of tool.editable">
+              <label
+                class="inspector__label"
+                [attr.for]="'property-' + property + '-' + element.id"
+              >
+                {{ propertyLabel(property) }}
+              </label>
+              <input
+                class="inspector__input"
+                type="number"
+                step="0.05"
+                min="0.05"
+                [attr.id]="'property-' + property + '-' + element.id"
+                [ngModel]="getNumericProperty(element, property)"
+                (ngModelChange)="updateSelectedElementProperty(property, $event)"
+              />
+            </div>
+          </div>
+
+          <div class="inspector__actions">
+            <button type="button" class="btn-secondary" (click)="duplicateSelectedElement()">Duplicate</button>
+            <button type="button" class="btn-danger" (click)="deleteSelectedElement()">Delete</button>
+          </div>
+        </ng-container>
+        <ng-template #emptyInspector>
+          <p class="inspector__placeholder">Pick any geometry in the plan to edit its dimensions.</p>
+        </ng-template>
+      </section>
+    </aside>
+
+    <main class="editor-viewport">
+      <div class="viewport-panels">
+        <section class="viewport-panel viewport-panel--plan">
+          <header class="viewport-panel__header">
+            <h2>2D Layout</h2>
+            <div class="viewport-panel__controls">
+              <span>Grid 1000mm</span>
+              <span>Snap on</span>
+            </div>
+          </header>
+          <div class="plan-wrapper">
+            <canvas
+              #planCanvas
+              class="plan-canvas"
+              tabindex="0"
+              (pointerdown)="onPlanPointerDown($event)"
+              (pointermove)="onPlanPointerMove($event)"
+              (pointerup)="onPlanPointerUp($event)"
+              (pointercancel)="onPlanPointerUp($event)"
+              (pointerleave)="onPlanPointerLeave()"
+            ></canvas>
+            <div class="cursor-layer">
+              <div *ngIf="localCursor() as local" class="cursor" [style.left.px]="local.x" [style.top.px]="local.y">
+                <span class="cursor__badge" [style.borderColor]="local.color">{{ local.label }}</span>
+              </div>
+              <ng-container *ngIf="!isSingleUserMode && (cursors$ | async) as remoteCursors">
+                <div
+                  *ngFor="let cursor of remoteCursors | keyvalue"
+                  class="cursor"
+                  [style.left.px]="cursor.value.x"
+                  [style.top.px]="cursor.value.y"
+                >
+                  <span class="cursor__badge" [style.borderColor]="cursor.value.color">{{ cursor.value.name }}</span>
+                </div>
+              </ng-container>
+            </div>
+          </div>
+        </section>
+
+        <section class="viewport-panel viewport-panel--scene">
+          <header class="viewport-panel__header">
+            <h2>3D Scene</h2>
+            <div class="viewport-panel__controls">
+              <span>Orbit</span>
+              <span>Sunset</span>
+            </div>
+          </header>
+          <canvas #sceneCanvas class="scene-canvas"></canvas>
+        </section>
+      </div>
+    </main>
+
+    <aside class="editor-sidebar">
+      <section class="sidebar-card" *ngIf="isSingleUserMode">
+        <h3>Getting Started</h3>
+        <ul class="starter-list">
+          <li class="starter-list__item">Place outer walls to define your footprint.</li>
+          <li class="starter-list__item">Drop corridors to shape circulation.</li>
+          <li class="starter-list__item">Add doors and windows for access and daylight.</li>
+          <li class="starter-list__item">Switch to 3D to verify proportions.</li>
+        </ul>
+      </section>
+
+      <section class="sidebar-card">
+        <h3>Shortcuts</h3>
+        <ul class="shortcut-list">
+          <li class="shortcut-list__item" *ngFor="let shortcut of shortcutEntries">
+            <span class="shortcut-list__combo">{{ shortcut.combo }}</span>
+            <span class="shortcut-list__description">{{ shortcut.description }}</span>
+          </li>
+        </ul>
+      </section>
+
+      <section class="sidebar-card">
+        <h3>{{ isSingleUserMode ? 'Starter Modules' : 'Predesigned Objects' }}</h3>
+        <div class="asset-card" *ngFor="let asset of predesignedAssets">
+          <div>
+            <p class="asset-card__name">{{ asset.name }}</p>
+            <p class="asset-card__description">{{ asset.description }}</p>
+          </div>
+          <button type="button" class="btn-tertiary" (click)="applyPresetAsset(asset)">Place</button>
+        </div>
+      </section>
+
+      <section class="sidebar-card">
+        <h3>Imported Assets</h3>
+        <label class="asset-upload">
+          <span>Import .glb / .obj</span>
+          <input type="file" multiple (change)="onAssetImport($event)" />
+        </label>
+        <ng-container *ngIf="importedAssets() as imports">
+          <div class="asset-card asset-card--empty" *ngIf="imports.length === 0">
+            <p>No imported assets yet.</p>
+          </div>
+          <div class="asset-card" *ngFor="let asset of imports">
+            <div>
+              <p class="asset-card__name">{{ asset.fileName }}</p>
+              <p class="asset-card__description">{{ asset.size | number }} bytes · {{ asset.createdAt | date: 'shortTime' }}</p>
+            </div>
+            <button type="button" class="btn-tertiary" (click)="placeImportedAsset(asset)">Add</button>
+          </div>
+        </ng-container>
+      </section>
+
+      <section class="sidebar-card" *ngIf="!isSingleUserMode && (members$ | async) as members">
+        <h3>Team in Room</h3>
+        <ul class="team-list">
+          <li class="team-list__item" *ngFor="let member of members">
+            <span class="team-list__avatar">{{ memberInitials(member) }}</span>
+            <div>
+              <p class="team-list__name">{{ member.user.displayName }}</p>
+              <p class="team-list__role">{{ member.role || 'Collaborator' }}</p>
+            </div>
+          </li>
+        </ul>
+      </section>
+    </aside>
   </div>
-  <div class="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
-    <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-400">Comments</h3>
-    <p class="mt-4 text-sm text-slate-500">Pin notes to selections in 2D or 3D.</p>
-  </div>
-</section>
+</div>

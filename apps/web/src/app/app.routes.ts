@@ -1,7 +1,14 @@
 import { Route } from '@angular/router';
+import { authGuard } from './core/services/auth-guard.service';
+import { adminGuard } from './core/services/admin.guard';
 
 export const appRoutes: Route[] = [
-  { path: '', pathMatch: 'full', redirectTo: 'spaces' },
+  { path: '', pathMatch: 'full', redirectTo: 'planner' },
+  {
+    path: 'planner',
+    loadComponent: () => import('./pages/editor/editor.component').then((m) => m.EditorComponent),
+    data: { mode: 'single' },
+  },
   {
     path: 'login',
     loadComponent: () => import('./pages/login/login.component').then((m) => m.LoginComponent),
@@ -12,6 +19,8 @@ export const appRoutes: Route[] = [
   },
   {
     path: 'spaces',
+    canActivate: [authGuard],
+    canActivateChild: [authGuard],
     children: [
       {
         path: '',
@@ -42,11 +51,13 @@ export const appRoutes: Route[] = [
   },
   {
     path: 'account',
+    canActivate: [authGuard],
     loadComponent: () => import('./pages/account/account.component').then((m) => m.AccountComponent),
   },
   {
     path: 'admin',
+    canActivate: [authGuard, adminGuard],
     loadComponent: () => import('./pages/admin/admin.component').then((m) => m.AdminComponent),
   },
-  { path: '**', redirectTo: 'spaces' },
+  { path: '**', redirectTo: 'planner' },
 ];

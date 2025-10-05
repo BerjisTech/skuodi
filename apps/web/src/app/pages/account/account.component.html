@@ -5,16 +5,18 @@
   <ng-container *ngIf="user$ | async as user">
     <form class="mt-8 space-y-4" [formGroup]="form" (ngSubmit)="save()">
       <div>
-        <label class="block text-sm font-medium text-slate-300">Display Name</label>
+        <label class="block text-sm font-medium text-slate-300" for="account-display-name">Display Name</label>
         <input
           class="mt-1 w-full rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+          id="account-display-name"
           formControlName="displayName"
         />
       </div>
       <div>
-        <label class="block text-sm font-medium text-slate-300">Avatar URL</label>
+        <label class="block text-sm font-medium text-slate-300" for="account-avatar-url">Avatar URL</label>
         <input
           class="mt-1 w-full rounded-md border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:border-brand-400 focus:outline-none"
+          id="account-avatar-url"
           formControlName="avatarUrl"
         />
       </div>

@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { BehaviorSubject, Observable, tap } from 'rxjs';
+import { BehaviorSubject, Observable, catchError, of, tap } from 'rxjs';
 import { Space, SpaceInvite, SpaceMember } from '../models';
 
 @Injectable({ providedIn: 'root' })
@@ -10,7 +10,13 @@ export class SpacesService {
   readonly spaces$ = this.spacesSubject.asObservable();
 
   loadSpaces(): Observable<Space[]> {
-    return this.http.get<Space[]>('/spaces').pipe(tap((spaces) => this.spacesSubject.next(spaces)));
+    return this.http.get<Space[]>('/spaces').pipe(
+      tap((spaces) => this.spacesSubject.next(spaces)),
+      catchError(() => {
+        this.spacesSubject.next([]);
+        return of([]);
+      })
+    );
   }
 
   createSpace(payload: { name: string }): Observable<Space> {
@@ -23,7 +29,7 @@ export class SpacesService {
   }
 
   listMembers(spaceId: string): Observable<SpaceMember[]> {
-    return this.http.get<SpaceMember[]>(`/spaces/${spaceId}/members`);
+    return this.http.get<SpaceMember[]>(`/spaces/${spaceId}/members`).pipe(catchError(() => of([])));
   }
 
   invite(spaceId: string, payload: { email: string; role: string; message?: string }): Observable<SpaceInvite | { status: string }> {
