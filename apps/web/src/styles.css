@@ -22,3 +22,13 @@ body {
 .btn-secondary {
   @apply inline-flex items-center justify-center rounded-md border border-slate-700 px-4 py-2 text-sm font-medium text-slate-100 shadow transition hover:bg-slate-800;
 }
+
+input, textarea, select, button {
+  background: transparent !important;
+  outline: none !important;
+
+  &:focus {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+}
