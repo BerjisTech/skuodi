@@ -226,6 +226,8 @@ export class EditorComponent implements OnInit, OnDestroy {
   private readonly mode: 'single' | 'collab' =
     this.route.snapshot.data?.['mode'] === 'single' ? 'single' : 'collab';
 
+  public showGroupTool!: ToolGroup;
+
   private readonly pixelsPerMeter = 80;
   readonly isSingleUserMode = this.mode === 'single';
   readonly toolGroups: ToolGroup[] = this.isSingleUserMode
