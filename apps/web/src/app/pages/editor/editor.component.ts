@@ -172,6 +172,11 @@ interface WallAttachment {
   normal: { x: number; y: number };
 }
 
+type SelectionHit =
+  | { kind: 'element'; id: string }
+  | { kind: 'wall'; id: string }
+  | { kind: 'room'; id: string };
+
 interface FloorState {
   floor: PlanFloor;
   nodes: PlanNode[];
@@ -1977,30 +1982,66 @@ export class EditorComponent implements OnInit, OnDestroy {
     }
     const primaryNode = handle === 'start' ? startNode : endNode;
     const oppositeNode = handle === 'start' ? endNode : startNode;
-    const dx = endNode.x - startNode.x;
-    const dy = endNode.y - startNode.y;
-    const horizontal = Math.abs(dx) >= Math.abs(dy);
-    const minDelta = this.wallSnapStep * 0.5;
-    if (horizontal) {
-      const snappedX = this.snapAxis(target.x);
-      if (handle === 'start') {
-        primaryNode.x = Math.min(snappedX, oppositeNode.x - minDelta);
-      } else {
-        primaryNode.x = Math.max(snappedX, oppositeNode.x + minDelta);
+    const minLength = this.wallSnapStep * 0.5;
+    const snappedTarget = this.snapPoint(target);
+    let desired = { ...snappedTarget };
+    let dirX = desired.x - oppositeNode.x;
+    let dirY = desired.y - oppositeNode.y;
+    let distance = Math.hypot(dirX, dirY);
+    if (distance < minLength) {
+      let rawDirX = target.x - oppositeNode.x;
+      let rawDirY = target.y - oppositeNode.y;
+      let rawLength = Math.hypot(rawDirX, rawDirY);
+      if (rawLength < 1e-6) {
+        rawDirX = minLength;
+        rawDirY = 0;
+        rawLength = Math.hypot(rawDirX, rawDirY);
       }
-      primaryNode.y = this.snapAxis(oppositeNode.y);
-    } else {
-      const snappedY = this.snapAxis(target.y);
-      if (handle === 'start') {
-        primaryNode.y = Math.min(snappedY, oppositeNode.y - minDelta);
-      } else {
-        primaryNode.y = Math.max(snappedY, oppositeNode.y + minDelta);
+      rawDirX /= rawLength;
+      rawDirY /= rawLength;
+      desired = this.snapPoint({
+        x: oppositeNode.x + rawDirX * minLength,
+        y: oppositeNode.y + rawDirY * minLength,
+      });
+      dirX = desired.x - oppositeNode.x;
+      dirY = desired.y - oppositeNode.y;
+      distance = Math.hypot(dirX, dirY);
+      if (distance < minLength) {
+        desired = {
+          x: Number((oppositeNode.x + rawDirX * minLength).toFixed(5)),
+          y: Number((oppositeNode.y + rawDirY * minLength).toFixed(5)),
+        };
       }
-      primaryNode.x = this.snapAxis(oppositeNode.x);
     }
+    primaryNode.x = Number(desired.x.toFixed(5));
+    primaryNode.y = Number(desired.y.toFixed(5));
 
     this.rebuildNodeWallReferences(nodes, walls);
     return this.recomputeRooms({ floor: { ...state.floor, updatedAt: Date.now() }, nodes, walls, rooms: state.rooms });
+  }
+
+  private removeWallFromState(state: FloorState, wallId: string): FloorState {
+    const walls = state.walls.filter((wall) => wall.id !== wallId).map((wall) => ({ ...wall }));
+    if (walls.length === state.walls.length) {
+      return state;
+    }
+    const nodes = state.nodes.map((node) => ({ ...node, wallIds: [...node.wallIds] }));
+    this.rebuildNodeWallReferences(nodes, walls);
+    const prunedNodes = nodes.filter((node) => node.wallIds.length > 0);
+    return this.recomputeRooms({ floor: { ...state.floor, updatedAt: Date.now() }, nodes: prunedNodes, walls, rooms: state.rooms });
+  }
+
+  private removeRoomFromState(state: FloorState, roomId: string): FloorState {
+    const rooms = state.rooms.filter((room) => room.id !== roomId).map((room) => ({ ...room }));
+    if (rooms.length === state.rooms.length) {
+      return state;
+    }
+    return {
+      floor: { ...state.floor, updatedAt: Date.now() },
+      nodes: state.nodes.map((node) => ({ ...node, wallIds: [...node.wallIds] })),
+      walls: state.walls.map((wall) => ({ ...wall })),
+      rooms,
+    };
   }
 
   private updateWallThicknessValue(state: FloorState, wallId: string, thickness: number): FloorState {
@@ -2997,13 +3038,15 @@ export class EditorComponent implements OnInit, OnDestroy {
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
-      this.drawWallEndpoints(
-        ctx,
-        start,
-        end,
-        wall.id === selectedWallId,
-        dragging && dragging.wallId === wall.id ? dragging.handle : null
-      );
+      if (wall.id === selectedWallId || (dragging && dragging.wallId === wall.id)) {
+        this.drawWallEndpoints(
+          ctx,
+          start,
+          end,
+          wall.id === selectedWallId,
+          dragging && dragging.wallId === wall.id ? dragging.handle : null
+        );
+      }
     }
     ctx.restore();
   }
@@ -3453,6 +3496,118 @@ export class EditorComponent implements OnInit, OnDestroy {
     return null;
   }
 
+  private collectElementsAt(point: { x: number; y: number }) {
+    const hits: SelectionHit[] = [];
+    const elements = [...this.elements()].reverse();
+    for (const element of elements) {
+      const local = this.toLocalPoint(element, point);
+      const halfWidth = element.width / 2;
+      const halfDepth = element.depth / 2;
+      if (Math.abs(local.x) <= halfWidth && Math.abs(local.y) <= halfDepth) {
+        hits.push({ kind: 'element', id: element.id });
+      }
+    }
+    return hits;
+  }
+
+  private collectWallsAt(point: { x: number; y: number }) {
+    const floor = this.activeFloorState();
+    if (!floor) {
+      return [] as SelectionHit[];
+    }
+    const tolerance = Math.max(this.wallSnapStep * 0.3, 0.1);
+    const nodeMap = new Map(floor.nodes.map((node) => [node.id, node] as const));
+    const candidates: Array<{ wall: PlanWall; distance: number }> = [];
+    for (const wall of floor.walls) {
+      const { start, end } = this.getWallEndpoints(wall, nodeMap);
+      const distance = this.distanceFromPointToSegment(point, start, end);
+      if (distance <= tolerance && this.pointBetween(point, start, end, tolerance)) {
+        candidates.push({ wall, distance });
+      }
+    }
+    candidates.sort((a, b) => a.distance - b.distance);
+    return candidates.map((item) => ({ kind: 'wall', id: item.wall.id }) as SelectionHit);
+  }
+
+  private collectRoomsAt(point: { x: number; y: number }) {
+    const floor = this.activeFloorState();
+    if (!floor) {
+      return [] as SelectionHit[];
+    }
+    const containing = floor.rooms.filter((room) => this.pointInPolygon(point, room.polygon));
+    containing.sort((a, b) => a.area - b.area);
+    return containing.map((room) => ({ kind: 'room', id: room.id }) as SelectionHit);
+  }
+
+  private buildSelectionStack(point: { x: number; y: number }) {
+    const stack: SelectionHit[] = [];
+    stack.push(...this.collectElementsAt(point));
+    stack.push(...this.collectWallsAt(point));
+    stack.push(...this.collectRoomsAt(point));
+    return stack;
+  }
+
+  private currentSelectionKey() {
+    const elementId = this.selectedElementId();
+    if (elementId) {
+      return `element:${elementId}`;
+    }
+    const wallId = this.selectedWallId();
+    if (wallId) {
+      return `wall:${wallId}`;
+    }
+    const roomId = this.selectedRoomId();
+    if (roomId) {
+      return `room:${roomId}`;
+    }
+    return null;
+  }
+
+  private selectionKey(hit: SelectionHit) {
+    return `${hit.kind}:${hit.id}`;
+  }
+
+  private applySelectionFromStack(stack: SelectionHit[], world: { x: number; y: number }) {
+    if (!stack.length) {
+      return;
+    }
+    const currentKey = this.currentSelectionKey();
+    const index = currentKey ? stack.findIndex((item) => this.selectionKey(item) === currentKey) : -1;
+    const next = index === -1 ? stack[0] : stack[(index + 1) % stack.length];
+    this.setSelectionFromHit(next, world);
+  }
+
+  private setSelectionFromHit(hit: SelectionHit, world: { x: number; y: number }) {
+    this.alignmentGuides = { x: null, y: null };
+    if (hit.kind === 'element') {
+      const element = this.elements().find((item) => item.id === hit.id);
+      if (!element) {
+        return;
+      }
+      this.selectedElementId.set(hit.id);
+      this.selectedWallId.set(null);
+      this.selectedRoomId.set(null);
+      this.wallResizeMode.set('both');
+      this.dragState = {
+        elementId: hit.id,
+        offset: { x: world.x - element.position.x, y: world.y - element.position.y },
+        origin: { ...element.position },
+      };
+    } else if (hit.kind === 'wall') {
+      this.selectedWallId.set(hit.id);
+      this.selectedElementId.set(null);
+      this.selectedRoomId.set(null);
+      this.wallResizeMode.set('both');
+      this.dragState = undefined;
+    } else {
+      this.selectedRoomId.set(hit.id);
+      this.selectedElementId.set(null);
+      this.selectedWallId.set(null);
+      this.wallResizeMode.set('both');
+      this.dragState = undefined;
+    }
+  }
+
   private toLocalPoint(element: EditorElement, point: { x: number; y: number }) {
     const dx = point.x - element.position.x;
     const dy = point.y - element.position.y;
@@ -3508,6 +3663,12 @@ export class EditorComponent implements OnInit, OnDestroy {
       }
     }
     const isModifier = event.metaKey || event.ctrlKey;
+    if (!isModifier && (event.key === 'Delete' || event.key === 'Backspace')) {
+      if (this.handleDeleteShortcut()) {
+        event.preventDefault();
+      }
+      return;
+    }
     if (!isModifier) {
       return;
     }
@@ -3699,43 +3860,23 @@ export class EditorComponent implements OnInit, OnDestroy {
         this.selectedElementId.set(element.id);
         this.selectedWallId.set(null);
         this.selectedRoomId.set(null);
+        this.wallResizeMode.set('both');
       }
     } else {
-      const wallHit = this.isSingleUserMode ? this.findWallAt(world) : null;
-      if (wallHit) {
-        this.selectedWallId.set(wallHit.id);
-        this.selectedRoomId.set(null);
-        this.selectedElementId.set(null);
-        this.wallResizeMode.set('both');
+      const stack = this.buildSelectionStack(world);
+      if (stack.length) {
+        pointerCaptured = capturePointer();
+        this.applySelectionFromStack(stack, world);
       } else {
-        const roomHit = this.isSingleUserMode ? this.findRoomAt(world) : null;
-        if (roomHit) {
-          this.selectedRoomId.set(roomHit.id);
-          this.selectedWallId.set(null);
-          this.selectedElementId.set(null);
-          this.wallResizeMode.set('both');
-        } else {
-          const hit = this.findElementAt(world);
-          if (hit) {
-            this.selectedElementId.set(hit.id);
-            this.selectedWallId.set(null);
-            this.selectedRoomId.set(null);
-            this.wallResizeMode.set('both');
-            this.dragState = {
-              elementId: hit.id,
-              offset: { x: world.x - hit.position.x, y: world.y - hit.position.y },
-              origin: { ...hit.position },
-            };
-          } else {
-            this.selectedElementId.set(null);
-            this.selectedWallId.set(null);
-            this.selectedRoomId.set(null);
-            this.wallResizeMode.set('both');
-            if (event.button === 0) {
-              beginPan();
-              return;
-            }
-          }
+        this.selectedElementId.set(null);
+        this.selectedWallId.set(null);
+        this.selectedRoomId.set(null);
+        this.wallResizeMode.set('both');
+        this.dragState = undefined;
+        this.alignmentGuides = { x: null, y: null };
+        if (event.button === 0) {
+          beginPan();
+          return;
         }
       }
     }
@@ -4075,6 +4216,77 @@ export class EditorComponent implements OnInit, OnDestroy {
     }
     this.elements.update((items) => items.filter((item) => item.id !== elementId));
     this.selectedElementId.set(null);
+    this.dragState = undefined;
+    this.alignmentGuides = { x: null, y: null };
+  }
+
+  private deleteSelectedWall() {
+    if (!this.isSingleUserMode) {
+      return;
+    }
+    const wallId = this.selectedWallId();
+    const floor = this.activeFloorState();
+    if (!wallId || !floor) {
+      return;
+    }
+    this.pushHistorySnapshot();
+    this.floorsState.update((floors) =>
+      floors.map((state) =>
+        state.floor.id === floor.floor.id
+          ? this.removeWallFromState(state, wallId)
+          : state
+      )
+    );
+    this.selectedWallId.set(null);
+    this.selectedElementId.set(null);
+    this.selectedRoomId.set(null);
+    this.dragState = undefined;
+    this.alignmentGuides = { x: null, y: null };
+    this.renderPlan();
+  }
+
+  private deleteSelectedRoom() {
+    if (!this.isSingleUserMode) {
+      return;
+    }
+    const roomId = this.selectedRoomId();
+    const floor = this.activeFloorState();
+    if (!roomId || !floor) {
+      return;
+    }
+    this.pushHistorySnapshot();
+    this.floorsState.update((floors) =>
+      floors.map((state) =>
+        state.floor.id === floor.floor.id
+          ? this.removeRoomFromState(state, roomId)
+          : state
+      )
+    );
+    this.selectedRoomId.set(null);
+    this.selectedElementId.set(null);
+    this.selectedWallId.set(null);
+    this.dragState = undefined;
+    this.alignmentGuides = { x: null, y: null };
+    this.renderPlan();
+  }
+
+  private handleDeleteShortcut() {
+    if (!this.isSingleUserMode) {
+      return false;
+    }
+    if (this.selectedElementId()) {
+      this.deleteSelectedElement();
+      return true;
+    }
+    if (this.selectedWallId()) {
+      this.deleteSelectedWall();
+      return true;
+    }
+    if (this.selectedRoomId()) {
+      this.deleteSelectedRoom();
+      return true;
+    }
+    return false;
   }
 
   duplicateSelectedElement() {
