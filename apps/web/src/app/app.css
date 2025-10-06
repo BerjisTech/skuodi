@@ -118,6 +118,46 @@
   font-weight: 500;
 }
 
+.element-flip-tooltip {
+  position: absolute;
+  transform: translate(-50%, -110%);
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(30, 41, 59, 0.7);
+  border-radius: 0.75rem;
+  padding: 0.45rem 0.6rem;
+  min-width: 9.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: #e2e8f0;
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.flip-tooltip__label {
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.flip-tooltip__group {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.flip-tooltip__button {
+  flex: 1;
+  padding: 0.25rem 0.35rem;
+  font-size: 0.7rem;
+}
+
+.flip-tooltip__button--active {
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
 .room-tooltip__type .btn-tertiary {
   padding: 0.2rem 0.4rem;
   min-width: unset;

@@ -222,6 +222,32 @@
                   </button>
                 </div>
               </div>
+              <div
+                *ngIf="selectedDoorOrWindow() as hinged"
+                class="element-flip-tooltip"
+                [style.left.px]="elementTooltipPosition(hinged)?.x"
+                [style.top.px]="elementTooltipPosition(hinged)?.y"
+              >
+                <span class="flip-tooltip__label">Orientation</span>
+                <div class="flip-tooltip__group">
+                  <button
+                    type="button"
+                    class="btn-tertiary flip-tooltip__button"
+                    [class.flip-tooltip__button--active]="hinged.flipFrontBack"
+                    (click)="toggleSelectedElementFlip('frontBack')"
+                  >
+                    Front ↔ Back
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-tertiary flip-tooltip__button"
+                    [class.flip-tooltip__button--active]="hinged.flipLeftRight"
+                    (click)="toggleSelectedElementFlip('leftRight')"
+                  >
+                    Left ↔ Right
+                  </button>
+                </div>
+              </div>
               <div class="cursor-layer">
                 <div
                   *ngIf="localCursor() as local"

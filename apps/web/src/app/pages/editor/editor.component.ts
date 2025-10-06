@@ -52,6 +52,10 @@ interface EditorElement {
   angle?: number; // for slants / spirals etc
   source: 'tool' | 'preset' | 'imported';
   assetRef?: string;
+  attachedWallId?: string | null;
+  wallParam?: number;
+  flipFrontBack?: boolean;
+  flipLeftRight?: boolean;
 }
 
 interface ToolDefinition {
@@ -157,6 +161,15 @@ interface PlanRoom {
   centroid: { x: number; y: number };
   roomType?: string;
   styleRef?: string;
+}
+
+interface WallAttachment {
+  wallId: string;
+  floorId: string;
+  position: { x: number; y: number };
+  param: number;
+  angleRad: number;
+  normal: { x: number; y: number };
 }
 
 interface FloorState {
@@ -956,6 +969,14 @@ export class EditorComponent implements OnInit, OnDestroy {
     const angle = typeof raw['angle'] === 'number' ? raw['angle'] : undefined;
     const source = raw['source'] === 'preset' || raw['source'] === 'imported' ? raw['source'] : 'tool';
     const assetRef = typeof raw['assetRef'] === 'string' ? raw['assetRef'] : undefined;
+    const attachedWallId = typeof raw['attachedWallId'] === 'string' ? raw['attachedWallId'] : null;
+    const wallParamRaw = raw['wallParam'];
+    const wallParam =
+      typeof wallParamRaw === 'number' && Number.isFinite(wallParamRaw)
+        ? Math.max(0, Math.min(1, wallParamRaw))
+        : undefined;
+    const flipFrontBack = raw['flipFrontBack'] === true;
+    const flipLeftRight = raw['flipLeftRight'] === true;
 
     return {
       id,
@@ -970,6 +991,10 @@ export class EditorComponent implements OnInit, OnDestroy {
       angle,
       source,
       assetRef,
+      attachedWallId,
+      wallParam: wallParam ?? undefined,
+      flipFrontBack,
+      flipLeftRight,
     };
   }
 
@@ -1263,6 +1288,28 @@ export class EditorComponent implements OnInit, OnDestroy {
     return Math.hypot(px - closestX, py - closestY);
   }
 
+  private projectPointOntoSegment(
+    point: { x: number; y: number },
+    start: { x: number; y: number },
+    end: { x: number; y: number }
+  ) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const lengthSq = dx * dx + dy * dy;
+    if (lengthSq < 1e-9) {
+      return { point: { x: start.x, y: start.y }, param: 0 };
+    }
+    const t = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSq;
+    const clamped = Math.max(0, Math.min(1, t));
+    return {
+      point: {
+        x: start.x + clamped * dx,
+        y: start.y + clamped * dy,
+      },
+      param: clamped,
+    };
+  }
+
   private pointBetween(point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }, tolerance: number) {
     const minX = Math.min(start.x, end.x) - tolerance;
     const maxX = Math.max(start.x, end.x) + tolerance;
@@ -1284,6 +1331,206 @@ export class EditorComponent implements OnInit, OnDestroy {
       }
     }
     return inside;
+  }
+
+  private buildWallAttachment(
+    floor: FloorState,
+    wall: PlanWall,
+    point: { x: number; y: number },
+    nodeMap: Map<string, PlanNode>,
+    tolerance: number
+  ): WallAttachment | null {
+    const endpoints = this.getWallEndpoints(wall, nodeMap);
+    const projection = this.projectPointOntoSegment(point, endpoints.start, endpoints.end);
+    const distance = Math.hypot(point.x - projection.point.x, point.y - projection.point.y);
+    if (distance > tolerance) {
+      return null;
+    }
+    const dx = endpoints.end.x - endpoints.start.x;
+    const dy = endpoints.end.y - endpoints.start.y;
+    const length = Math.hypot(dx, dy);
+    if (length < 1e-6) {
+      return null;
+    }
+    const angleRad = Math.atan2(dy, dx);
+    const normal = { x: -Math.sin(angleRad), y: Math.cos(angleRad) };
+    return {
+      wallId: wall.id,
+      floorId: floor.floor.id,
+      position: projection.point,
+      param: projection.param,
+      angleRad,
+      normal,
+    };
+  }
+
+  private findNearestWallAttachment(point: { x: number; y: number }, floor?: FloorState, toleranceMultiplier = 0.65): WallAttachment | null {
+    const activeFloor = floor ?? this.activeFloorState();
+    if (!activeFloor) {
+      return null;
+    }
+    const tolerance = Math.max(this.wallSnapStep * toleranceMultiplier, 0.08);
+    const nodeMap = new Map(activeFloor.nodes.map((node) => [node.id, node] as const));
+    let best: { attachment: WallAttachment; distance: number } | null = null;
+    for (const wall of activeFloor.walls) {
+      const attachment = this.buildWallAttachment(activeFloor, wall, point, nodeMap, tolerance);
+      if (!attachment) {
+        continue;
+      }
+      const distance = Math.hypot(point.x - attachment.position.x, point.y - attachment.position.y);
+      if (!best || distance < best.distance) {
+        best = { attachment, distance };
+      }
+    }
+    return best?.attachment ?? null;
+  }
+
+  private resolveAttachmentByParam(
+    element: EditorElement,
+    floor: FloorState
+  ): WallAttachment | null {
+    if (!element.attachedWallId || typeof element.wallParam !== 'number') {
+      return null;
+    }
+    const wall = floor.walls.find((candidate) => candidate.id === element.attachedWallId);
+    if (!wall) {
+      return null;
+    }
+    const nodeMap = new Map(floor.nodes.map((node) => [node.id, node] as const));
+    const endpoints = this.getWallEndpoints(wall, nodeMap);
+    const dx = endpoints.end.x - endpoints.start.x;
+    const dy = endpoints.end.y - endpoints.start.y;
+    const length = Math.hypot(dx, dy);
+    if (length < 1e-6) {
+      return null;
+    }
+    const clampedParam = Math.max(0, Math.min(1, element.wallParam));
+    const position = {
+      x: endpoints.start.x + dx * clampedParam,
+      y: endpoints.start.y + dy * clampedParam,
+    };
+    const angleRad = Math.atan2(dy, dx);
+    const normal = { x: -Math.sin(angleRad), y: Math.cos(angleRad) };
+    return {
+      wallId: wall.id,
+      floorId: floor.floor.id,
+      position,
+      param: clampedParam,
+      angleRad,
+      normal,
+    };
+  }
+
+  private applyWallAttachment(element: EditorElement, attachment: WallAttachment): EditorElement {
+    const rotationDeg = Number(THREE.MathUtils.radToDeg(attachment.angleRad).toFixed(2));
+    return {
+      ...element,
+      position: {
+        x: Number(attachment.position.x.toFixed(3)),
+        y: Number(attachment.position.y.toFixed(3)),
+      },
+      rotation: rotationDeg,
+      attachedWallId: attachment.wallId,
+      wallParam: attachment.param,
+    };
+  }
+
+  private elementRequiresWall(type: EditorElementType) {
+    return type === 'door' || type === 'window';
+  }
+
+  private attachElementToNearestWall(
+    element: EditorElement,
+    world: { x: number; y: number },
+    floor?: FloorState
+  ): EditorElement | null {
+    const targetFloor = floor ?? this.activeFloorState();
+    if (!targetFloor) {
+      return null;
+    }
+    const attachment = this.findNearestWallAttachment(world, targetFloor, 0.75);
+    if (!attachment) {
+      return null;
+    }
+    return this.applyWallAttachment(element, attachment);
+  }
+
+  private slideElementAlongWall(
+    element: EditorElement,
+    world: { x: number; y: number },
+    floor?: FloorState
+  ): EditorElement {
+    const targetFloor = floor ?? this.activeFloorState();
+    if (!targetFloor) {
+      return element;
+    }
+    const tolerance = Math.max(this.wallSnapStep * 0.75, 0.08);
+    const nodeMap = new Map(targetFloor.nodes.map((node) => [node.id, node] as const));
+
+    let nearest: { attachment: WallAttachment; distance: number } | null = null;
+    let current: { attachment: WallAttachment; distance: number } | null = null;
+
+    for (const wall of targetFloor.walls) {
+      const endpoints = this.getWallEndpoints(wall, nodeMap);
+      const projection = this.projectPointOntoSegment(world, endpoints.start, endpoints.end);
+      const distance = Math.hypot(world.x - projection.point.x, world.y - projection.point.y);
+      if (distance > tolerance) {
+        continue;
+      }
+      const dx = endpoints.end.x - endpoints.start.x;
+      const dy = endpoints.end.y - endpoints.start.y;
+      const length = Math.hypot(dx, dy);
+      if (length < 1e-6) {
+        continue;
+      }
+      const angleRad = Math.atan2(dy, dx);
+      const normal = { x: -Math.sin(angleRad), y: Math.cos(angleRad) };
+      const attachment: WallAttachment = {
+        wallId: wall.id,
+        floorId: targetFloor.floor.id,
+        position: projection.point,
+        param: projection.param,
+        angleRad,
+        normal,
+      };
+      if (!nearest || distance < nearest.distance) {
+        nearest = { attachment, distance };
+      }
+      if (wall.id === element.attachedWallId) {
+        current = { attachment, distance };
+      }
+    }
+
+    if (current && (!nearest || current.distance <= nearest.distance + 1e-6)) {
+      return this.applyWallAttachment(element, current.attachment);
+    }
+    if (nearest) {
+      return this.applyWallAttachment(element, nearest.attachment);
+    }
+
+    const fallback = this.resolveAttachmentByParam(element, targetFloor);
+    if (fallback) {
+      return this.applyWallAttachment(element, fallback);
+    }
+
+    return {
+      ...element,
+      attachedWallId: element.attachedWallId ?? null,
+      wallParam: element.wallParam,
+    };
+  }
+
+  private elementsDiffer(a: EditorElement, b: EditorElement) {
+    if (a === b) {
+      return false;
+    }
+    return (
+      Math.abs(a.position.x - b.position.x) > 1e-3 ||
+      Math.abs(a.position.y - b.position.y) > 1e-3 ||
+      Math.abs((a.rotation ?? 0) - (b.rotation ?? 0)) > 1e-2 ||
+      (a.attachedWallId ?? null) !== (b.attachedWallId ?? null) ||
+      Math.abs((a.wallParam ?? 0) - (b.wallParam ?? 0)) > 1e-3
+    );
   }
 
   private snapPoint(point: { x: number; y: number }) {
@@ -1324,18 +1571,18 @@ export class EditorComponent implements OnInit, OnDestroy {
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const length = Math.hypot(dx, dy) || 1;
-    const ux = dx / length;
-    const uy = dy / length;
-    const nx = -uy;
-    const ny = ux;
-    const offsetX = nx * halfThickness;
-    const offsetY = ny * halfThickness;
-    return [
-      { x: start.x + offsetX, y: start.y + offsetY },
-      { x: end.x + offsetX, y: end.y + offsetY },
-      { x: end.x - offsetX, y: end.y - offsetY },
-      { x: start.x - offsetX, y: start.y - offsetY },
-    ];
+    const tx = dx / length;
+    const ty = dy / length;
+    const nx = -ty;
+    const ny = tx;
+    const tip = Math.max(Math.min(halfThickness * 1.15, length / 2), halfThickness * 0.35);
+    const startTip = { x: start.x - tx * tip, y: start.y - ty * tip };
+    const endTip = { x: end.x + tx * tip, y: end.y + ty * tip };
+    const startPos = { x: start.x + nx * halfThickness, y: start.y + ny * halfThickness };
+    const endPos = { x: end.x + nx * halfThickness, y: end.y + ny * halfThickness };
+    const endNeg = { x: end.x - nx * halfThickness, y: end.y - ny * halfThickness };
+    const startNeg = { x: start.x - nx * halfThickness, y: start.y - ny * halfThickness };
+    return [startTip, startPos, endPos, endTip, endNeg, startNeg];
   }
 
   private segmentIntersection(
@@ -1403,6 +1650,28 @@ export class EditorComponent implements OnInit, OnDestroy {
       }
     }
     return null;
+  }
+
+  private hitTestWallHandle(point: { x: number; y: number }) {
+    const floor = this.activeFloorState();
+    if (!floor) {
+      return null;
+    }
+    const nodeMap = new Map(floor.nodes.map((node) => [node.id, node] as const));
+    const tolerance = Math.max(this.wallSnapStep * 0.6, 0.15);
+    let best: { wall: PlanWall; handle: 'start' | 'end'; distance: number } | null = null;
+    for (const wall of floor.walls) {
+      const { start, end } = this.getWallEndpoints(wall, nodeMap);
+      const startDistance = Math.hypot(point.x - start.x, point.y - start.y);
+      if (startDistance <= tolerance && (!best || startDistance < best.distance)) {
+        best = { wall, handle: 'start', distance: startDistance };
+      }
+      const endDistance = Math.hypot(point.x - end.x, point.y - end.y);
+      if (endDistance <= tolerance && (!best || endDistance < best.distance)) {
+        best = { wall, handle: 'end', distance: endDistance };
+      }
+    }
+    return best ? { wallId: best.wall.id, handle: best.handle } : null;
   }
 
   private findRoomAt(point: { x: number; y: number }): PlanRoom | null {
@@ -1685,6 +1954,53 @@ export class EditorComponent implements OnInit, OnDestroy {
 
     this.rebuildNodeWallReferences(nodes, walls);
     return this.recomputeRooms({ floor: { ...state.floor }, nodes, walls, rooms: state.rooms });
+  }
+
+  private moveWallHandleNode(
+    state: FloorState,
+    wallId: string,
+    handle: 'start' | 'end',
+    target: { x: number; y: number }
+  ): FloorState {
+    const nodes = state.nodes.map((node) => ({ ...node, wallIds: [...node.wallIds] }));
+    const walls = state.walls.map((wall) => ({ ...wall }));
+    const index = walls.findIndex((wall) => wall.id === wallId);
+    if (index === -1) {
+      return state;
+    }
+    const wall = walls[index];
+    const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
+    const startNode = nodeMap.get(wall.startNodeId);
+    const endNode = nodeMap.get(wall.endNodeId);
+    if (!startNode || !endNode) {
+      return state;
+    }
+    const primaryNode = handle === 'start' ? startNode : endNode;
+    const oppositeNode = handle === 'start' ? endNode : startNode;
+    const dx = endNode.x - startNode.x;
+    const dy = endNode.y - startNode.y;
+    const horizontal = Math.abs(dx) >= Math.abs(dy);
+    const minDelta = this.wallSnapStep * 0.5;
+    if (horizontal) {
+      const snappedX = this.snapAxis(target.x);
+      if (handle === 'start') {
+        primaryNode.x = Math.min(snappedX, oppositeNode.x - minDelta);
+      } else {
+        primaryNode.x = Math.max(snappedX, oppositeNode.x + minDelta);
+      }
+      primaryNode.y = this.snapAxis(oppositeNode.y);
+    } else {
+      const snappedY = this.snapAxis(target.y);
+      if (handle === 'start') {
+        primaryNode.y = Math.min(snappedY, oppositeNode.y - minDelta);
+      } else {
+        primaryNode.y = Math.max(snappedY, oppositeNode.y + minDelta);
+      }
+      primaryNode.x = this.snapAxis(oppositeNode.x);
+    }
+
+    this.rebuildNodeWallReferences(nodes, walls);
+    return this.recomputeRooms({ floor: { ...state.floor, updatedAt: Date.now() }, nodes, walls, rooms: state.rooms });
   }
 
   private updateWallThicknessValue(state: FloorState, wallId: string, thickness: number): FloorState {
@@ -1989,6 +2305,13 @@ export class EditorComponent implements OnInit, OnDestroy {
   readonly selectedElement = computed(() =>
     this.elements().find((el) => el.id === this.selectedElementId()) ?? null
   );
+  readonly selectedDoorOrWindow = computed(() => {
+    const element = this.selectedElement();
+    if (!element) {
+      return null;
+    }
+    return this.elementRequiresWall(element.type) ? element : null;
+  });
   readonly importedAssets = signal<ImportedAsset[]>([]);
   readonly localCursor = signal<{ x: number; y: number; label: string; color: string } | null>(null);
   readonly onboardingVisible = signal(false);
@@ -2039,12 +2362,20 @@ export class EditorComponent implements OnInit, OnDestroy {
   private planContext?: CanvasRenderingContext2D;
   private planRenderEffect?: EffectRef;
   private sceneRenderEffect?: EffectRef;
+  private attachmentEffect?: EffectRef;
   private localPlanEffect?: EffectRef;
   private dragState?: {
     elementId: string;
     offset: { x: number; y: number };
     origin: { x: number; y: number };
   };
+  private wallHandleDrag?: {
+    wallId: string;
+    handle: 'start' | 'end';
+    pointerId: number;
+    historyCaptured: boolean;
+  };
+  private alignmentGuides: { x: number | null; y: number | null } = { x: null, y: null };
   private lastElementId = 0;
   private localCursorColor = '#f97316';
   private currentSpaceId: string | null = null;
@@ -2194,6 +2525,7 @@ export class EditorComponent implements OnInit, OnDestroy {
     if (this.isSingleUserMode) {
       const { hasElements } = this.restoreLocalPlanSnapshot();
       this.ensureInitialFloor();
+      this.ensureAttachmentEffect();
       runInInjectionContext(this.injector, () => {
         this.localPlanEffect = effect(() => {
           this.writeLocalPlanSnapshot({
@@ -2218,6 +2550,7 @@ export class EditorComponent implements OnInit, OnDestroy {
       return;
     }
     this.ensureInitialFloor();
+    this.ensureAttachmentEffect();
     this.paramSubscription = combineLatest([this.projectId$, this.spaceId$]).subscribe(([projectId, spaceId]) => {
       if (spaceId && spaceId !== this.currentSpaceId) {
         const color = this.randomColor();
@@ -2290,6 +2623,62 @@ export class EditorComponent implements OnInit, OnDestroy {
       });
     }
     this.syncSceneElements();
+  }
+
+  private ensureAttachmentEffect() {
+    if (this.attachmentEffect) {
+      return;
+    }
+    runInInjectionContext(this.injector, () => {
+      this.attachmentEffect = effect(
+        () => {
+          const floor = this.activeFloorState();
+          const elements = this.elements();
+          if (!floor || elements.length === 0) {
+            return;
+          }
+          const draggingId = this.dragState?.elementId ?? null;
+          const transformId = this.activeTransformElementId;
+          let changed = false;
+          const reconciled = elements.map((element) => {
+            if (!this.elementRequiresWall(element.type)) {
+              return element;
+            }
+            if (element.id === draggingId || element.id === transformId) {
+              return element;
+            }
+            let next = element;
+            if (element.attachedWallId && typeof element.wallParam === 'number') {
+              const resolved = this.resolveAttachmentByParam(element, floor);
+              if (resolved) {
+                const attached = this.applyWallAttachment(element, resolved);
+                if (this.elementsDiffer(element, attached)) {
+                  next = attached;
+                  changed = true;
+                }
+              } else {
+                const nearest = this.attachElementToNearestWall(element, element.position, floor);
+                if (nearest && this.elementsDiffer(element, nearest)) {
+                  next = nearest;
+                  changed = true;
+                }
+              }
+            } else {
+              const nearest = this.attachElementToNearestWall(element, element.position, floor);
+              if (nearest && this.elementsDiffer(element, nearest)) {
+                next = nearest;
+                changed = true;
+              }
+            }
+            return next;
+          });
+          if (changed) {
+            this.elements.set(reconciled);
+          }
+        },
+        { allowSignalWrites: true }
+      );
+    });
   }
 
   private attachScenePointerHandlers(element: HTMLCanvasElement) {
@@ -2493,6 +2882,7 @@ export class EditorComponent implements OnInit, OnDestroy {
     const nextDepth = Math.max(0.05, Number((element.depth * object.scale.z).toFixed(3)));
     const nextHeight = Math.max(0.05, Number((element.height * object.scale.y).toFixed(3)));
 
+    let updatedElement: EditorElement | null = null;
     const changed =
       Math.abs(nextPosition.x - element.position.x) > 1e-3 ||
       Math.abs(nextPosition.y - element.position.y) > 1e-3 ||
@@ -2502,25 +2892,49 @@ export class EditorComponent implements OnInit, OnDestroy {
       Math.abs(nextRotation - (element.rotation ?? 0)) > 1e-2;
 
     if (changed) {
+      const floor = this.activeFloorState();
       this.elements.update((items) =>
-        items.map((item) =>
-          item.id === elementId
-            ? {
-                ...item,
-                position: nextPosition,
-                width: nextWidth,
-                depth: nextDepth,
-                height: nextHeight,
-                rotation: nextRotation,
-              }
-            : item
-        )
+        items.map((item) => {
+          if (item.id !== elementId) {
+            return item;
+          }
+          const base: EditorElement = {
+            ...item,
+            position: nextPosition,
+            width: nextWidth,
+            depth: nextDepth,
+            height: nextHeight,
+            rotation: nextRotation,
+          };
+          if (!this.elementRequiresWall(item.type)) {
+            updatedElement = base;
+            return base;
+          }
+          const attached = this.attachElementToNearestWall(base, nextPosition);
+          if (attached) {
+            updatedElement = attached;
+            return attached;
+          }
+          if (floor) {
+            const fallback = this.resolveAttachmentByParam(base, floor);
+            if (fallback) {
+              const reconciled = this.applyWallAttachment(base, fallback);
+              updatedElement = reconciled;
+              return reconciled;
+            }
+          }
+          updatedElement = base;
+          return base;
+        })
       );
     }
 
+    const finalElement = updatedElement ?? element;
     object.scale.set(1, 1, 1);
-    object.rotation.set(0, THREE.MathUtils.degToRad(nextRotation), 0);
-    object.position.set(nextPosition.x, nextHeight / 2, -nextPosition.y);
+    const rotationRad = THREE.MathUtils.degToRad(finalElement.rotation ?? 0);
+    const flipRotation = finalElement.flipFrontBack ? Math.PI : 0;
+    object.rotation.set(0, rotationRad + flipRotation, 0);
+    object.position.set(finalElement.position.x, finalElement.height / 2, -finalElement.position.y);
     this.attachTransformControlsToSelection();
   }
 
@@ -2541,6 +2955,7 @@ export class EditorComponent implements OnInit, OnDestroy {
     }
     this.drawWallPreviewShape(ctx);
     this.drawRoomPreviewShape(ctx);
+    this.drawAlignmentGuides(ctx, canvas);
     for (const element of this.elements()) {
       this.drawPlanElement(ctx, element);
     }
@@ -2561,6 +2976,8 @@ export class EditorComponent implements OnInit, OnDestroy {
 
   private drawPlanWalls(ctx: CanvasRenderingContext2D, floor: FloorState) {
     const nodeMap = new Map(floor.nodes.map((node) => [node.id, node] as const));
+    const selectedWallId = this.selectedWallId();
+    const dragging = this.wallHandleDrag;
     ctx.save();
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = 'rgba(30, 64, 175, 0.9)';
@@ -2579,6 +2996,61 @@ export class EditorComponent implements OnInit, OnDestroy {
       });
       ctx.closePath();
       ctx.fill();
+      ctx.stroke();
+      this.drawWallEndpoints(
+        ctx,
+        start,
+        end,
+        wall.id === selectedWallId,
+        dragging && dragging.wallId === wall.id ? dragging.handle : null
+      );
+    }
+    ctx.restore();
+  }
+
+  private drawWallEndpoints(
+    ctx: CanvasRenderingContext2D,
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+    highlighted: boolean,
+    draggingHandle: 'start' | 'end' | null
+  ) {
+    const startCanvas = this.worldToCanvas(start);
+    const endCanvas = this.worldToCanvas(end);
+    const drawHandle = (point: { x: number; y: number }, active: boolean) => {
+      ctx.beginPath();
+      ctx.fillStyle = active ? '#38bdf8' : 'rgba(148, 163, 184, 0.88)';
+      ctx.strokeStyle = 'rgba(15, 23, 42, 0.9)';
+      ctx.lineWidth = 1.1;
+      ctx.arc(point.x, point.y, active ? 6 : 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    };
+    drawHandle(startCanvas, highlighted || draggingHandle === 'start');
+    drawHandle(endCanvas, highlighted || draggingHandle === 'end');
+  }
+
+  private drawAlignmentGuides(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) {
+    const guides = this.alignmentGuides;
+    if (!guides) {
+      return;
+    }
+    ctx.save();
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.65)';
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 1.2;
+    if (guides.x !== null) {
+      const canvasPoint = this.worldToCanvas({ x: guides.x, y: 0 });
+      ctx.beginPath();
+      ctx.moveTo(canvasPoint.x, 0);
+      ctx.lineTo(canvasPoint.x, canvas.height);
+      ctx.stroke();
+    }
+    if (guides.y !== null) {
+      const canvasPoint = this.worldToCanvas({ x: 0, y: guides.y });
+      ctx.beginPath();
+      ctx.moveTo(0, canvasPoint.y);
+      ctx.lineTo(canvas.width, canvasPoint.y);
       ctx.stroke();
     }
     ctx.restore();
@@ -2830,13 +3302,26 @@ export class EditorComponent implements OnInit, OnDestroy {
   ) {
     const angle = (element.angle ?? 90) * (Math.PI / 180);
     const radius = widthPx;
+    const hingeLeft = !(element.flipLeftRight ?? false);
+    const swingsForward = !(element.flipFrontBack ?? false);
+    const pivotX = hingeLeft ? -widthPx / 2 : widthPx / 2;
+    const pivotY = swingsForward ? depthPx / 2 : -depthPx / 2;
+    const startAngle = swingsForward
+      ? hingeLeft
+        ? -Math.PI / 2
+        : Math.PI / 2
+      : hingeLeft
+      ? Math.PI / 2
+      : -Math.PI / 2;
+    const sweep = (hingeLeft === swingsForward ? 1 : -1) * angle;
+    const endAngle = startAngle + sweep;
     ctx.save();
-    ctx.translate(-widthPx / 2, depthPx / 2);
+    ctx.translate(pivotX, pivotY);
     ctx.strokeStyle = 'rgba(96, 165, 250, 0.9)';
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.arc(0, 0, radius, -Math.PI / 2, -Math.PI / 2 + angle, false);
+    ctx.arc(0, 0, radius, startAngle, endAngle, sweep < 0);
     ctx.stroke();
     ctx.restore();
   }
@@ -3092,6 +3577,10 @@ export class EditorComponent implements OnInit, OnDestroy {
       this.renderPlan();
       return;
     }
+    if (this.wallHandleDrag && (event.pointerId ?? this.wallHandleDrag.pointerId) === this.wallHandleDrag.pointerId) {
+      this.updateWallHandleDrag(world);
+      return;
+    }
     this.updateLocalCursor(canvasPoint.x, canvasPoint.y);
     if (this.currentSpaceId) {
       this.cursors.send(this.currentSpaceId, canvasPoint.x, canvasPoint.y);
@@ -3173,6 +3662,14 @@ export class EditorComponent implements OnInit, OnDestroy {
       beginPan();
       return;
     }
+    if (toolId === 'select' && this.isSingleUserMode) {
+      const handleHit = this.hitTestWallHandle(world);
+      if (handleHit) {
+        pointerCaptured = capturePointer();
+        this.startWallHandleDrag(handleHit, event.pointerId ?? -1);
+        return;
+      }
+    }
     if (toolId === 'draw-wall' && this.isSingleUserMode) {
       const snapped = this.snapPoint(world);
       this.drawWallStart = snapped;
@@ -3190,7 +3687,14 @@ export class EditorComponent implements OnInit, OnDestroy {
     } else if (toolId !== 'select') {
       const tool = this.findToolById(toolId);
       if (tool && tool.type !== 'select') {
-        const element = this.instantiateElement(tool, world, 'tool');
+        let element = this.instantiateElement(tool, world, 'tool');
+        if (this.elementRequiresWall(element.type)) {
+          const attached = this.attachElementToNearestWall(element, world);
+          if (!attached) {
+            return;
+          }
+          element = attached;
+        }
         this.elements.update((items) => [...items, element]);
         this.selectedElementId.set(element.id);
         this.selectedWallId.set(null);
@@ -3254,7 +3758,9 @@ export class EditorComponent implements OnInit, OnDestroy {
       this.renderPlan();
     }
     this.dragState = undefined;
+    this.wallHandleDrag = undefined;
     this.panState = null;
+    this.alignmentGuides = { x: null, y: null };
     if (event.pointerId && event.target instanceof HTMLElement) {
       event.target.releasePointerCapture(event.pointerId);
     }
@@ -3267,6 +3773,8 @@ export class EditorComponent implements OnInit, OnDestroy {
     this.wallPreview = null;
     this.roomPreview = null;
     this.panState = null;
+    this.wallHandleDrag = undefined;
+    this.alignmentGuides = { x: null, y: null };
     this.localCursor.set(null);
   }
 
@@ -3288,19 +3796,97 @@ export class EditorComponent implements OnInit, OnDestroy {
       }
     }
 
+    const alignment = this.computeAlignmentSnap(elementId, { x: nextX, y: nextY });
+    this.alignmentGuides = alignment.guides;
+    nextX = alignment.position.x;
+    nextY = alignment.position.y;
+
     this.elements.update((items) =>
       items.map((item) =>
         item.id === elementId
-          ? {
-              ...item,
-              position: {
-                x: Number(nextX.toFixed(3)),
-                y: Number(nextY.toFixed(3)),
-              },
-            }
+          ? this.elementRequiresWall(item.type)
+            ? this.slideElementAlongWall(item, world)
+            : {
+                ...item,
+                position: {
+                  x: Number(nextX.toFixed(3)),
+                  y: Number(nextY.toFixed(3)),
+                },
+              }
           : item
       )
     );
+  }
+
+  private computeAlignmentSnap(
+    elementId: string,
+    base: { x: number; y: number }
+  ) {
+    const elements = this.elements();
+    const element = elements.find((item) => item.id === elementId);
+    if (!element || this.elementRequiresWall(element.type)) {
+      return { position: base, guides: { x: null, y: null } };
+    }
+
+    const tolerance = Math.max(this.wallSnapStep * 0.75, 0.15);
+    const halfWidth = element.width / 2;
+    const halfDepth = element.depth / 2;
+    const baseLeft = base.x - halfWidth;
+    const baseRight = base.x + halfWidth;
+    const baseTop = base.y + halfDepth;
+    const baseBottom = base.y - halfDepth;
+
+    let bestX = { value: base.x, guide: null as number | null, delta: tolerance + 1 };
+    let bestY = { value: base.y, guide: null as number | null, delta: tolerance + 1 };
+
+    for (const other of elements) {
+      if (other.id === elementId) {
+        continue;
+      }
+      const otherHalfWidth = other.width / 2;
+      const otherHalfDepth = other.depth / 2;
+      const otherCenterX = other.position.x;
+      const otherLeft = otherCenterX - otherHalfWidth;
+      const otherRight = otherCenterX + otherHalfWidth;
+      const otherCenterY = other.position.y;
+      const otherTop = otherCenterY + otherHalfDepth;
+      const otherBottom = otherCenterY - otherHalfDepth;
+
+      const checkX = (targetCenter: number, guide: number, delta: number) => {
+        if (delta < tolerance && delta < bestX.delta) {
+          bestX = { value: targetCenter, guide, delta };
+        }
+      };
+
+      checkX(otherCenterX, otherCenterX, Math.abs(base.x - otherCenterX));
+      checkX(otherLeft + halfWidth, otherLeft, Math.abs(baseLeft - otherLeft));
+      checkX(otherRight - halfWidth, otherRight, Math.abs(baseRight - otherRight));
+      // Cross alignment (left to right / right to left)
+      checkX(otherRight + halfWidth, otherRight, Math.abs(baseLeft - otherRight));
+      checkX(otherLeft - halfWidth, otherLeft, Math.abs(baseRight - otherLeft));
+
+      const checkY = (targetCenter: number, guide: number, delta: number) => {
+        if (delta < tolerance && delta < bestY.delta) {
+          bestY = { value: targetCenter, guide, delta };
+        }
+      };
+
+      checkY(otherCenterY, otherCenterY, Math.abs(base.y - otherCenterY));
+      checkY(otherBottom + halfDepth, otherBottom, Math.abs(baseBottom - otherBottom));
+      checkY(otherTop - halfDepth, otherTop, Math.abs(baseTop - otherTop));
+      checkY(otherTop + halfDepth, otherTop, Math.abs(baseBottom - otherTop));
+      checkY(otherBottom - halfDepth, otherBottom, Math.abs(baseTop - otherBottom));
+    }
+
+    const position = {
+      x: bestX.delta <= tolerance ? bestX.value : base.x,
+      y: bestY.delta <= tolerance ? bestY.value : base.y,
+    };
+    const guides = {
+      x: bestX.delta <= tolerance ? bestX.guide : null,
+      y: bestY.delta <= tolerance ? bestY.guide : null,
+    };
+    return { position, guides };
   }
 
   private updateLocalCursor(x: number, y: number) {
@@ -3343,6 +3929,12 @@ export class EditorComponent implements OnInit, OnDestroy {
     const thickness = overrides.thickness ?? defaults.thickness;
     const angle = overrides.angle ?? defaults.angle ?? 0;
     const rotation = overrides.rotation ?? defaults.rotation ?? 0;
+    const attachedWallId =
+      overrides.attachedWallId ?? defaults.attachedWallId ?? null;
+    const wallParam =
+      overrides.wallParam ?? defaults.wallParam ?? (attachedWallId ? 0.5 : undefined);
+    const flipFrontBack = overrides.flipFrontBack ?? defaults.flipFrontBack ?? false;
+    const flipLeftRight = overrides.flipLeftRight ?? defaults.flipLeftRight ?? false;
     const name =
       overrides.name ??
       defaults.name ??
@@ -3363,6 +3955,10 @@ export class EditorComponent implements OnInit, OnDestroy {
       angle,
       source,
       assetRef: overrides.assetRef ?? undefined,
+      attachedWallId,
+      wallParam,
+      flipFrontBack,
+      flipLeftRight,
     };
   }
 
@@ -3494,13 +4090,91 @@ export class EditorComponent implements OnInit, OnDestroy {
       x: element.position.x + 0.5,
       y: element.position.y - 0.5,
     };
-    const clone = this.instantiateElement(tool, offsetPosition, element.source, {
-      ...element,
-      position: offsetPosition,
+    let clone = this.instantiateElement(tool, offsetPosition, element.source, {
+      width: element.width,
+      depth: element.depth,
+      height: element.height,
+      thickness: element.thickness,
+      angle: element.angle,
+      rotation: element.rotation,
+      flipFrontBack: element.flipFrontBack,
+      flipLeftRight: element.flipLeftRight,
       name: `${element.name} Copy`,
     });
+    if (this.elementRequiresWall(clone.type)) {
+      const attached = this.attachElementToNearestWall(clone, offsetPosition);
+      if (attached) {
+        clone = attached;
+      }
+    }
     this.elements.update((items) => [...items, clone]);
     this.selectedElementId.set(clone.id);
+  }
+
+  elementTooltipPosition(element: EditorElement) {
+    const canvasPoint = this.worldToCanvas(element.position);
+    return { x: canvasPoint.x, y: canvasPoint.y - 48 };
+  }
+
+  toggleSelectedElementFlip(axis: 'frontBack' | 'leftRight') {
+    const elementId = this.selectedElementId();
+    if (!elementId) {
+      return;
+    }
+    this.elements.update((items) =>
+      items.map((item) => {
+        if (item.id !== elementId || !this.elementRequiresWall(item.type)) {
+          return item;
+        }
+        if (axis === 'frontBack') {
+          return { ...item, flipFrontBack: !item.flipFrontBack };
+        }
+        return { ...item, flipLeftRight: !item.flipLeftRight };
+      })
+    );
+  }
+
+  private startWallHandleDrag(hit: { wallId: string; handle: 'start' | 'end' }, pointerId: number) {
+    this.wallHandleDrag = {
+      wallId: hit.wallId,
+      handle: hit.handle,
+      pointerId,
+      historyCaptured: false,
+    };
+    this.wallResizeMode.set(hit.handle === 'start' ? 'start' : 'end');
+    if (this.selectedWallId() !== hit.wallId) {
+      this.selectedWallId.set(hit.wallId);
+      this.selectedElementId.set(null);
+      this.selectedRoomId.set(null);
+    }
+  }
+
+  private updateWallHandleDrag(world: { x: number; y: number }) {
+    const drag = this.wallHandleDrag;
+    if (!drag) {
+      return;
+    }
+    const floor = this.activeFloorState();
+    if (!floor) {
+      return;
+    }
+    if (!drag.historyCaptured) {
+      this.pushHistorySnapshot();
+      drag.historyCaptured = true;
+    }
+    this.floorsState.update((floors) =>
+      floors.map((state) =>
+        state.floor.id === floor.floor.id
+          ? this.moveWallHandleNode(state, drag.wallId, drag.handle, world)
+          : state
+      )
+    );
+    this.renderPlan();
+  }
+
+  private endWallHandleDrag() {
+    this.wallHandleDrag = undefined;
+    this.wallResizeMode.set('both');
   }
 
   applyPresetAsset(asset: PresetAsset) {
@@ -4199,10 +4873,13 @@ export class EditorComponent implements OnInit, OnDestroy {
     leaf.receiveShadow = true;
 
     const pivot = new THREE.Group();
-    pivot.position.x = -element.width / 2;
-    leaf.position.x = element.width / 2;
+    const hingeLeft = !(element.flipLeftRight ?? false);
+    pivot.position.x = hingeLeft ? -element.width / 2 : element.width / 2;
+    leaf.position.x = hingeLeft ? element.width / 2 : -element.width / 2;
     pivot.add(leaf);
-    pivot.rotation.y = THREE.MathUtils.degToRad(element.angle ?? 0);
+    const swingsForward = !(element.flipFrontBack ?? false);
+    const angleDirection = hingeLeft === swingsForward ? 1 : -1;
+    pivot.rotation.y = THREE.MathUtils.degToRad((element.angle ?? 0) * angleDirection);
 
     group.add(pivot);
 
@@ -4413,6 +5090,8 @@ export class EditorComponent implements OnInit, OnDestroy {
     this.planRenderEffect?.destroy();
     this.planRenderEffect = undefined;
     this.localPlanEffect?.destroy();
+    this.attachmentEffect?.destroy();
+    this.attachmentEffect = undefined;
     this.paramSubscription?.unsubscribe();
     this.disposeSceneBundle();
     if (!this.isSingleUserMode) {
