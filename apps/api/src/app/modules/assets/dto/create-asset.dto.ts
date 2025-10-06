@@ -1,14 +1,4 @@
-import {
-  IsEnum,
-  IsInt,
-  IsNotEmpty,
-  IsOptional,
-  IsPositive,
-  IsString,
-  IsUUID,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import { AssetKind } from '../../../database/entities/asset.entity';
 
 const ASSET_KINDS: AssetKind[] = ['gltf', 'texture', 'plan'];
@@ -33,7 +23,7 @@ export class CreateAssetDto {
   priceCents = 0;
 
   @IsString()
-  license: string = 'personal';
+  license = 'personal';
 
   @IsNotEmpty()
   storageKey!: string;

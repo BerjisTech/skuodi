@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CommentEntity } from '../../database/entities/comment.entity';
@@ -19,9 +19,12 @@ export class CommentsService {
   async createComment(userId: string, dto: CreateCommentDto) {
     const project = await this.projectsService.findByIdOrFail(dto.projectId, userId);
     const author = await this.usersRepo.findOne({ where: { id: userId } });
+    if (!author) {
+      throw new NotFoundException('Author not found');
+    }
     const comment = this.commentsRepo.create({
       project,
-      author: author!,
+      author,
       body: dto.body,
       anchor: dto.anchor,
       category: dto.category ?? 'comment',

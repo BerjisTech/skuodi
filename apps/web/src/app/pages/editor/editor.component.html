@@ -1,4 +1,4 @@
-<div class="editor-shell">
+<div class="editor-shell flex flex-col gap-6">
   <div class="planner-onboarding" *ngIf="isSingleUserMode && onboardingVisible()">
     <div class="planner-onboarding__panel">
       <header class="planner-onboarding__header">
@@ -22,36 +22,44 @@
     </div>
   </div>
 
-  <header class="editor-header">
+  <header class="editor-header flex flex-col gap-4 border-b border-slate-800/80 pb-5 lg:flex-row lg:items-start lg:justify-between">
     <div class="editor-header__title">
       <ng-container *ngIf="!isSingleUserMode; else singleHeader">
-        <a class="editor-header__back" [routerLink]="['/spaces', (spaceId$ | async)]">← Back to space</a>
-        <h1 class="editor-header__name" *ngIf="project$ | async as project">{{ project?.name }}</h1>
-        <p class="editor-header__status" [class.editor-header__status--ready]="status() === 'ready'">
+        <a
+          class="editor-header__back text-xs font-medium text-sky-400 transition hover:text-sky-300"
+          [routerLink]="['/spaces', (spaceId$ | async)]"
+        >
+          ← Back to space
+        </a>
+        <h1 class="editor-header__name text-2xl font-semibold" *ngIf="project$ | async as project">{{ project?.name }}</h1>
+        <p
+          class="editor-header__status text-[0.7rem] uppercase tracking-[0.08em] text-slate-200/70"
+          [class.text-emerald-400]="status() === 'ready'"
+        >
           {{ status() === 'ready' ? 'Synced and ready' : status() === 'loading' ? 'Preparing workspace…' : 'Connection issue' }}
         </p>
       </ng-container>
       <ng-template #singleHeader>
-        <p class="editor-header__eyebrow">Single Designer</p>
-        <h1 class="editor-header__name">Plan Studio</h1>
-        <p class="editor-header__status editor-header__status--ready">Ready for sketching</p>
+        <p class="editor-header__eyebrow text-xs uppercase tracking-[0.08em] text-slate-300">Single Designer</p>
+        <h1 class="editor-header__name text-2xl font-semibold">Plan Studio</h1>
+        <p class="editor-header__status text-[0.7rem] uppercase tracking-[0.08em] text-emerald-400">Ready for sketching</p>
       </ng-template>
     </div>
     <ng-container *ngIf="!isSingleUserMode; else singleActions">
-      <div class="editor-header__actions">
+      <div class="editor-header__actions flex items-center gap-3">
         <button class="btn-secondary" type="button">Invite</button>
         <button class="btn" type="button">Export</button>
       </div>
     </ng-container>
     <ng-template #singleActions>
-      <div class="editor-header__actions editor-header__actions--single">
+      <div class="editor-header__actions editor-header__actions--single flex items-center gap-2 text-sm text-slate-300">
         <span>Tip: start with walls, then add doors, windows, and a balcony.</span>
       </div>
     </ng-template>
   </header>
 
-  <div class="editor-body">
-    <aside class="editor-tools">
+  <div class="editor-body grid gap-5 md:grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)_280px] lg:grid-cols-[260px_minmax(0,1fr)_260px]">
+    <aside class="editor-tools flex flex-col gap-5">
       <section class="tool-groups" *ngFor="let group of toolGroups">
         <h2 class="tool-groups__title">{{ group.title }}</h2>
         <div class="tool-groups__grid">
@@ -206,7 +214,7 @@
       </section>
     </aside>
 
-    <main class="editor-viewport">
+    <main class="editor-viewport flex flex-col gap-5">
       <div style="align-self: flex-end; display: inline-flex; gap: 0.5rem;">
         <button
           type="button"
@@ -226,11 +234,11 @@
         </button>
       </div>
 
-      <div class="viewport-panels" [ngClass]="viewportPanelsClass()">
+      <div class="viewport-panels grid gap-5" [ngClass]="viewportPanelsClass()">
         <section class="viewport-panel viewport-panel--plan" *ngIf="showPlan()">
           <header class="viewport-panel__header">
             <h2>2D Layout</h2>
-            <div class="viewport-panel__controls">
+            <div class="viewport-panel__controls flex items-center gap-3 text-xs text-slate-400">
               <span>Grid 1000mm</span>
               <span>Snap on</span>
             </div>
@@ -330,7 +338,7 @@
         <section class="viewport-panel viewport-panel--scene" *ngIf="showScene()">
           <header class="viewport-panel__header">
             <h2>3D Scene</h2>
-            <div class="viewport-panel__controls viewport-panel__controls--buttons">
+            <div class="viewport-panel__controls flex items-center gap-2 text-xs text-slate-300">
               <button type="button" class="btn-tertiary" (click)="setScenePreset('top')">Top</button>
               <button type="button" class="btn-tertiary" (click)="setScenePreset('iso')">Iso</button>
               <button type="button" class="btn-tertiary" (click)="setScenePreset('reset')">Reset</button>
@@ -341,7 +349,7 @@
       </div>
     </main>
 
-    <aside class="editor-sidebar">
+    <aside class="editor-sidebar flex flex-col gap-5">
       <section class="sidebar-card">
         <h3>Floors</h3>
         <ul class="floor-list">
@@ -360,11 +368,22 @@
             >
               ✎
             </button>
+            <button
+              type="button"
+              class="btn-tertiary floor-list__delete"
+              (click)="confirmDeleteFloor(floorState.floor.id)"
+              [disabled]="floorsState().length <= 1"
+            >
+              ✕
+            </button>
           </li>
         </ul>
         <div class="floor-actions">
           <button type="button" class="btn-tertiary" (click)="addFloor()">Add Floor</button>
           <button type="button" class="btn-tertiary" (click)="duplicateActiveFloor()" [disabled]="!activeFloorState()">Duplicate</button>
+          <button type="button" class="btn-tertiary" (click)="deleteActiveFloor()" [disabled]="floorsState().length <= 1">
+            Delete
+          </button>
         </div>
       </section>
 

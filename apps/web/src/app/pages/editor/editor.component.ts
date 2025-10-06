@@ -83,16 +83,31 @@ interface PresetAsset {
 
 type ViewMode = 'plan' | 'scene' | 'split';
 
+interface QuickStartFloorWallConfig {
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+  thickness?: number;
+  height?: number;
+}
+
+interface QuickStartFloorConfig {
+  name: string;
+  elevation: number;
+  slabThickness?: number;
+  walls: QuickStartFloorWallConfig[];
+}
+
 interface QuickStartTemplate {
   id: string;
   name: string;
   description: string;
-  elements: Array<
+  elements?: Array<
     Partial<EditorElement> & {
       type: EditorElementType;
       position: { x: number; y: number };
     }
   >;
+  floors?: QuickStartFloorConfig[];
 }
 
 type StoredImportedAsset = Omit<ImportedAsset, 'createdAt'> & { createdAt: string };
@@ -463,6 +478,60 @@ export class EditorComponent implements OnInit, OnDestroy {
 
   private buildQuickStartTemplates(): QuickStartTemplate[] {
     return [
+      {
+        id: 'stacked-duplex',
+        name: 'Stacked Duplex Shell',
+        description: 'Two aligned floors with a shared footprint and stair core.',
+        floors: [
+          {
+            name: 'Ground Floor',
+            elevation: 0,
+            slabThickness: 0.3,
+            walls: [
+              { start: { x: -4, y: -3 }, end: { x: 4, y: -3 } },
+              { start: { x: 4, y: -3 }, end: { x: 4, y: 3 } },
+              { start: { x: 4, y: 3 }, end: { x: -4, y: 3 } },
+              { start: { x: -4, y: 3 }, end: { x: -4, y: -3 } },
+              { start: { x: -1.75, y: -3 }, end: { x: -1.75, y: 3 } },
+              { start: { x: -1.75, y: 1.5 }, end: { x: -4, y: 1.5 } },
+            ],
+          },
+          {
+            name: 'Upper Floor',
+            elevation: 3.2,
+            slabThickness: 0.3,
+            walls: [
+              { start: { x: -4, y: -3 }, end: { x: 4, y: -3 } },
+              { start: { x: 4, y: -3 }, end: { x: 4, y: 3 } },
+              { start: { x: 4, y: 3 }, end: { x: -4, y: 3 } },
+              { start: { x: -4, y: 3 }, end: { x: -4, y: -3 } },
+              { start: { x: -1.75, y: -3 }, end: { x: -1.75, y: 3 } },
+              { start: { x: -1.75, y: 1.5 }, end: { x: -4, y: 1.5 } },
+            ],
+          },
+        ],
+        elements: [
+          {
+            type: 'stairs',
+            position: { x: -2.6, y: 0 },
+            width: 1.2,
+            depth: 3.4,
+            height: 3.2,
+            angle: 32,
+            name: 'Stair Core',
+          },
+          {
+            type: 'door',
+            position: { x: -4, y: 0 },
+            rotation: 90,
+            width: 1,
+            height: 2.1,
+            thickness: 0.1,
+            angle: 85,
+            name: 'Entry Door',
+          },
+        ],
+      },
       {
         id: 'compact-studio',
         name: 'Compact Studio',
@@ -2005,9 +2074,13 @@ export class EditorComponent implements OnInit, OnDestroy {
     const mode = this.viewMode();
     return mode === 'scene' || mode === 'split';
   });
-  readonly viewportPanelsClass = computed(() =>
-    this.viewMode() === 'split' ? 'viewport-panels--split' : 'viewport-panels--single'
-  );
+  readonly viewportPanelsClass = computed(() => {
+    const mode = this.viewMode();
+    if (mode === 'split') {
+      return ['grid-cols-1', 'xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'];
+    }
+    return ['grid-cols-1'];
+  });
   readonly activeFloorState = computed(() => {
     const id = this.activeFloorId();
     return this.floorsState().find((item) => item.floor.id === id) ?? null;
@@ -3118,22 +3191,68 @@ export class EditorComponent implements OnInit, OnDestroy {
     if (!this.isSingleUserMode) {
       return;
     }
+    this.pushHistorySnapshot();
     this.resetPlanState();
-    const created: EditorElement[] = [];
-    for (const config of template.elements) {
-      const { type: elementType, position, ...overrides } = config;
-      const tool = this.findToolByType(elementType);
-      if (!tool) {
-        continue;
+    if (template.floors && template.floors.length) {
+      const seededFloors: FloorState[] = [];
+      for (const floorConfig of template.floors) {
+        let floorState = this.createFloorState(floorConfig.name, floorConfig.elevation);
+        floorState = {
+          floor: {
+            ...floorState.floor,
+            slabThickness: floorConfig.slabThickness ?? floorState.floor.slabThickness,
+          },
+          nodes: floorState.nodes,
+          walls: floorState.walls,
+          rooms: floorState.rooms,
+        };
+        for (const wallConfig of floorConfig.walls) {
+          const previousWallIds = new Set(floorState.walls.map((wall) => wall.id));
+          let nextState = this.insertWallSegment(floorState, wallConfig.start, wallConfig.end);
+          if (wallConfig.thickness !== undefined || wallConfig.height !== undefined) {
+            const adjustedWalls = nextState.walls.map((wall) =>
+              previousWallIds.has(wall.id)
+                ? wall
+                : {
+                    ...wall,
+                    thickness: wallConfig.thickness ?? wall.thickness,
+                    height: wallConfig.height ?? wall.height,
+                  }
+            );
+            nextState = this.recomputeRooms({
+              floor: nextState.floor,
+              nodes: nextState.nodes,
+              walls: adjustedWalls,
+              rooms: nextState.rooms,
+            });
+          }
+          floorState = nextState;
+        }
+        seededFloors.push(floorState);
       }
-      const element = this.instantiateElement(tool, position, 'preset', overrides);
-      created.push(element);
+      this.floorsState.set(seededFloors);
+      const activeId = seededFloors[0]?.floor.id ?? '';
+      this.activeFloorId.set(activeId);
+      this.reseedIdentifiersFromFloors(seededFloors);
+    }
+    const created: EditorElement[] = [];
+    if (template.elements && template.elements.length) {
+      for (const config of template.elements) {
+        const { type: elementType, position, ...overrides } = config;
+        const tool = this.findToolByType(elementType);
+        if (!tool) {
+          continue;
+        }
+        const element = this.instantiateElement(tool, position, 'preset', overrides);
+        created.push(element);
+      }
     }
     this.elements.set(created);
     this.selectedElementId.set(created.length > 0 ? created[0].id : null);
     this.selectedToolId.set('select');
     this.onboardingDismissed.set(true);
     this.onboardingVisible.set(false);
+    this.renderPlan();
   }
 
   dismissOnboarding() {
@@ -3332,6 +3451,67 @@ export class EditorComponent implements OnInit, OnDestroy {
     this.renderPlan();
   }
 
+  confirmDeleteFloor(floorId: string) {
+    if (this.floorsState().length <= 1) {
+      return;
+    }
+    const target = this.floorsState().find((state) => state.floor.id === floorId);
+    const label = target?.floor.name ?? 'this floor';
+    const shouldDelete =
+      typeof window === 'undefined'
+        ? true
+        : window.confirm(`Delete ${label}? This will remove all geometry on it.`);
+    if (!shouldDelete) {
+      return;
+    }
+    this.deleteFloor(floorId);
+  }
+
+  deleteFloor(floorId: string) {
+    const floors = this.floorsState();
+    if (floors.length <= 1) {
+      return;
+    }
+    const index = floors.findIndex((state) => state.floor.id === floorId);
+    if (index === -1) {
+      return;
+    }
+    this.pushHistorySnapshot();
+    const nextFloors = floors.filter((state) => state.floor.id !== floorId);
+    this.floorsState.set(nextFloors);
+
+    if (!nextFloors.some((state) => state.floor.id === this.activeFloorId())) {
+      const fallback = nextFloors[index] ?? nextFloors[index - 1] ?? nextFloors[0] ?? null;
+      this.activeFloorId.set(fallback?.floor.id ?? '');
+    }
+
+    const remainingWallIds = new Set<string>();
+    const remainingRoomIds = new Set<string>();
+    nextFloors.forEach((state) => {
+      state.walls.forEach((wall) => remainingWallIds.add(wall.id));
+      state.rooms.forEach((room) => remainingRoomIds.add(room.id));
+    });
+
+    const selectedWallId = this.selectedWallId();
+    if (selectedWallId && !remainingWallIds.has(selectedWallId)) {
+      this.selectedWallId.set(null);
+    }
+    const selectedRoomId = this.selectedRoomId();
+    if (selectedRoomId && !remainingRoomIds.has(selectedRoomId)) {
+      this.selectedRoomId.set(null);
+    }
+
+    this.renderPlan();
+  }
+
+  deleteActiveFloor() {
+    const active = this.activeFloorState();
+    if (!active) {
+      return;
+    }
+    this.confirmDeleteFloor(active.floor.id);
+  }
+
   renameFloor(floorId: string, name: string) {
     const trimmed = name.trim();
     if (!trimmed) {
@@ -3458,6 +3638,13 @@ export class EditorComponent implements OnInit, OnDestroy {
     this.lastElementId = 0;
     this.lastAssetId = 0;
     this.elementCounters = {};
+    this.selectedWallId.set(null);
+    this.selectedRoomId.set(null);
+    this.planView.set({ scale: 1, offsetX: 0, offsetY: 0 });
+    const defaultFloor = this.createFloorState('Ground Floor', 0);
+    this.floorsState.set([defaultFloor]);
+    this.activeFloorId.set(defaultFloor.floor.id);
+    this.reseedIdentifiersFromFloors([defaultFloor]);
   }
 
   readonly inspectorTool = computed(() => {

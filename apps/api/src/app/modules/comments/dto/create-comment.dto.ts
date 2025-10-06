@@ -1,7 +1,7 @@
-import { IsIn, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsUUID } from 'class-validator';
 
 const CATEGORIES = ['comment', 'issue'] as const;
-const ANCHOR_TYPES = ['2d', '3d'] as const;
+type AnchorType = '2d' | '3d';
 
 export class CreateCommentDto {
   @IsUUID()
@@ -12,7 +12,7 @@ export class CreateCommentDto {
 
   @IsOptional()
   anchor?: {
-    type: (typeof ANCHOR_TYPES)[number];
+    type: AnchorType;
     selection: Record<string, unknown>;
     screenshot?: string;
   };

@@ -11,7 +11,7 @@ This document captures the proposed implementation roadmap before any code chang
 - ✅ Phase 0 foundations (floor/node/wall graph, persisted snapshot v2) are in place.
 - ✅ Phase 1 snapped wall/room authoring, room detection, and inspector integration are live.
 - ✅ Phase 2 enhancements landed: wall + room tooltips, inline room type cycling, wall metrical guards, and undo/redo history.
-- ⏳ Phase 3 has add/duplicate/rename UI and per-floor persistence; delete action and multi-floor templates remain.
+- ✅ Phase 3 floor management now covers add/duplicate/rename/delete with per-floor persistence and a multi-floor quick-start seed.
 - ⏳ Phases 4–5 are planned but not started.
 
 ## Phase 0 – Foundations & Data Model
@@ -114,7 +114,7 @@ This document captures the proposed implementation roadmap before any code chang
 
 ## Next Steps
 
-1. Close out Phase 3 floor management (delete action, elevation tweaks) and add multi-floor quick-start templates.
+1. Expose floor elevation/slab thickness editing and surface level metadata in the inspector.
 2. Begin Phase 4 viewport work: camera presets polish, floor visibility controls, and Home-to-fit shortcut.
 3. Track material/style bindings and openings reintroduction as part of Phase 5 once the rectilinear workflow is stable.
 
