@@ -5,7 +5,7 @@
   "scripts": {
     "start:api": "nx serve api",
     "start:web": "nx serve web",
-    "build": "nx run-many --target=build --all --skip-nx-cache",
+    "build": "node scripts/build.js",
     "lint": "nx run-many --target=lint --all",
     "test": "nx run-many --target=test --all",
     "typeorm": "node --require ts-node/register ./node_modules/typeorm/cli.js",

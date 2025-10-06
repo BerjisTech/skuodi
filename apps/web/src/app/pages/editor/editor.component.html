@@ -338,10 +338,25 @@
         <section class="viewport-panel viewport-panel--scene" *ngIf="showScene()">
           <header class="viewport-panel__header">
             <h2>3D Scene</h2>
-            <div class="viewport-panel__controls flex items-center gap-2 text-xs text-slate-300">
-              <button type="button" class="btn-tertiary" (click)="setScenePreset('top')">Top</button>
-              <button type="button" class="btn-tertiary" (click)="setScenePreset('iso')">Iso</button>
-              <button type="button" class="btn-tertiary" (click)="setScenePreset('reset')">Reset</button>
+            <div class="viewport-panel__controls flex items-center gap-3 text-xs text-slate-300">
+              <div class="transform-toolbar flex items-center gap-1">
+                <button
+                  type="button"
+                  class="btn-tertiary transform-toolbar__button"
+                  *ngFor="let mode of transformModeOptions"
+                  (click)="setTransformMode(mode.id)"
+                  [class.transform-toolbar__button--active]="isTransformMode(mode.id)"
+                  [attr.aria-pressed]="isTransformMode(mode.id)"
+                >
+                  {{ mode.label }}
+                </button>
+              </div>
+              <span class="opacity-30">|</span>
+              <div class="flex items-center gap-2">
+                <button type="button" class="btn-tertiary" (click)="setScenePreset('top')">Top</button>
+                <button type="button" class="btn-tertiary" (click)="setScenePreset('iso')">Iso</button>
+                <button type="button" class="btn-tertiary" (click)="setScenePreset('reset')">Reset</button>
+              </div>
             </div>
           </header>
           <canvas #sceneCanvas class="scene-canvas"></canvas>

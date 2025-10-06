@@ -18,6 +18,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subscription, combineLatest, filter, map, of, switchMap } from 'rxjs';
 import { CursorService } from '@kouru/collab';
 import { createScene, resizeRenderer, animate, addGrid } from '@kouru/three';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import * as THREE from 'three';
 import { FormsModule } from '@angular/forms';
 import { ProjectsService } from '../../core/services/projects.service';
@@ -84,6 +85,7 @@ interface PresetAsset {
 }
 
 type ViewMode = 'plan' | 'scene' | 'split';
+type TransformMode = 'translate' | 'rotate' | 'scale';
 
 interface QuickStartFloorWallConfig {
   start: { x: number; y: number };
@@ -2009,8 +2011,9 @@ export class EditorComponent implements OnInit, OnDestroy {
   });
   readonly shortcutEntries = [
     { combo: '1', description: 'Switch to Select tool' },
-    { combo: 'W', description: 'Activate Wall tool' },
-    { combo: 'D', description: 'Activate Door tool' },
+    { combo: 'W', description: '3D move gizmo' },
+    { combo: 'E', description: '3D rotate gizmo' },
+    { combo: 'R', description: '3D scale gizmo' },
     { combo: 'Shift + Drag', description: 'Constrain move to axis' },
     { combo: '⌘ / Ctrl + Z', description: 'Undo last action' },
     { combo: '⌘ / Ctrl + Y', description: 'Redo' },
@@ -2035,7 +2038,11 @@ export class EditorComponent implements OnInit, OnDestroy {
   private planRenderEffect?: EffectRef;
   private sceneRenderEffect?: EffectRef;
   private localPlanEffect?: EffectRef;
-  private dragState?: { elementId: string; offset: { x: number; y: number } };
+  private dragState?: {
+    elementId: string;
+    offset: { x: number; y: number };
+    origin: { x: number; y: number };
+  };
   private lastElementId = 0;
   private localCursorColor = '#f97316';
   private currentSpaceId: string | null = null;
@@ -2070,6 +2077,12 @@ export class EditorComponent implements OnInit, OnDestroy {
 
   readonly quickStartTemplates: QuickStartTemplate[] = this.isSingleUserMode ? this.buildQuickStartTemplates() : [];
   readonly viewMode = signal<ViewMode>('plan');
+  readonly transformMode = signal<TransformMode>('translate');
+  readonly transformModeOptions: Array<{ id: TransformMode; label: string; hint: string }> = [
+    { id: 'translate', label: 'Move', hint: 'W' },
+    { id: 'rotate', label: 'Rotate', hint: 'E' },
+    { id: 'scale', label: 'Scale', hint: 'R' },
+  ];
   readonly viewOptions: Array<{ id: ViewMode; label: string; hint: string }> = [
     { id: 'plan', label: '2D', hint: 'Focus on plan' },
     { id: 'scene', label: '3D', hint: 'Explore the model' },
@@ -2117,6 +2130,20 @@ export class EditorComponent implements OnInit, OnDestroy {
   private planCanvas?: ElementRef<HTMLCanvasElement>;
   private sceneCanvas?: ElementRef<HTMLCanvasElement>;
   private readonly injector = inject(Injector);
+  private transformControls?: TransformControls;
+  private readonly raycaster = new THREE.Raycaster();
+  private scenePointerHandlers?: {
+    down: (event: PointerEvent) => void;
+    move: (event: PointerEvent) => void;
+    up: (event: PointerEvent) => void;
+    leave: (event: PointerEvent) => void;
+  };
+  private scenePointerDown = false;
+  private scenePointerMoved = false;
+  private scenePointerButton = 0;
+  private scenePointerStart: { x: number; y: number } | null = null;
+  private activeTransformElementId: string | null = null;
+  private readonly ndcPointer = new THREE.Vector2();
 
   @ViewChild('planCanvas', { static: false })
   set planCanvasRef(value: ElementRef<HTMLCanvasElement> | undefined) {
@@ -2224,6 +2251,29 @@ export class EditorComponent implements OnInit, OnDestroy {
     }
     const bundle = createScene(canvas);
     addGrid(bundle.scene);
+    const transformControls = new TransformControls(bundle.camera, bundle.renderer.domElement);
+    transformControls.setMode(this.transformMode());
+    transformControls.addEventListener('dragging-changed', (event) => {
+      bundle.controls.enabled = !event.value;
+      if (event.value) {
+        const elementId = transformControls.object?.userData?.['elementId'];
+        this.activeTransformElementId = typeof elementId === 'string' ? elementId : null;
+      } else {
+        this.commitTransformControls();
+        this.activeTransformElementId = null;
+      }
+    });
+    transformControls.addEventListener('objectChange', () => {
+      const elementId = transformControls.object?.userData?.['elementId'];
+      if (typeof elementId === 'string') {
+        this.activeTransformElementId = elementId;
+      }
+    });
+    bundle.scene.add(transformControls as unknown as THREE.Object3D);
+    this.transformControls = transformControls;
+    this.updateTransformControlMode(this.transformMode());
+
+    this.attachScenePointerHandlers(bundle.renderer.domElement);
     animate(bundle, () => resizeRenderer(bundle));
     this.sceneBundle = bundle;
     if (!this.sceneRenderEffect) {
@@ -2238,6 +2288,238 @@ export class EditorComponent implements OnInit, OnDestroy {
       });
     }
     this.syncSceneElements();
+  }
+
+  private attachScenePointerHandlers(element: HTMLCanvasElement) {
+    this.detachScenePointerHandlers();
+    const down = (event: PointerEvent) => this.handleScenePointerDown(event);
+    const move = (event: PointerEvent) => this.handleScenePointerMove(event);
+    const up = (event: PointerEvent) => this.handleScenePointerUp(event);
+    const leave = () => this.handleScenePointerLeave();
+    element.addEventListener('pointerdown', down);
+    element.addEventListener('pointermove', move);
+    element.addEventListener('pointerup', up);
+    element.addEventListener('pointerleave', leave);
+    this.scenePointerHandlers = { down, move, up, leave };
+  }
+
+  private detachScenePointerHandlers() {
+    const handlers = this.scenePointerHandlers;
+    if (!handlers) {
+      return;
+    }
+    const element = this.sceneBundle?.renderer?.domElement;
+    if (element) {
+      element.removeEventListener('pointerdown', handlers.down);
+      element.removeEventListener('pointermove', handlers.move);
+      element.removeEventListener('pointerup', handlers.up);
+      element.removeEventListener('pointerleave', handlers.leave);
+    }
+    this.scenePointerHandlers = undefined;
+    this.scenePointerDown = false;
+    this.scenePointerMoved = false;
+    this.scenePointerButton = 0;
+    this.scenePointerStart = null;
+  }
+
+  private handleScenePointerDown(event: PointerEvent) {
+    if (event.button !== 0 || this.transformControls?.axis) {
+      return;
+    }
+    this.scenePointerDown = true;
+    this.scenePointerMoved = false;
+    this.scenePointerButton = event.button;
+    this.scenePointerStart = { x: event.clientX, y: event.clientY };
+  }
+
+  private handleScenePointerMove(event: PointerEvent) {
+    if (!this.scenePointerDown || !this.scenePointerStart) {
+      return;
+    }
+    const dx = event.clientX - this.scenePointerStart.x;
+    const dy = event.clientY - this.scenePointerStart.y;
+    if (!this.scenePointerMoved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+      this.scenePointerMoved = true;
+    }
+  }
+
+  private handleScenePointerUp(event: PointerEvent) {
+    if (!this.scenePointerDown || event.button !== this.scenePointerButton) {
+      return;
+    }
+    const shouldSelect = !this.scenePointerMoved && !this.transformControls?.dragging;
+    this.scenePointerDown = false;
+    this.scenePointerMoved = false;
+    this.scenePointerButton = 0;
+    this.scenePointerStart = null;
+    if (shouldSelect) {
+      this.pickSceneObject(event);
+    }
+  }
+
+  private handleScenePointerLeave() {
+    this.scenePointerDown = false;
+    this.scenePointerMoved = false;
+    this.scenePointerButton = 0;
+    this.scenePointerStart = null;
+  }
+
+  private pickSceneObject(event: PointerEvent) {
+    const bundle = this.sceneBundle;
+    const canvas = this.sceneCanvas?.nativeElement ?? bundle?.renderer.domElement;
+    if (!bundle || !canvas) {
+      return;
+    }
+    const rect = canvas.getBoundingClientRect();
+    const ndcX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this.ndcPointer.set(ndcX, ndcY);
+    this.raycaster.setFromCamera(this.ndcPointer, bundle.camera);
+    const meshes = Array.from(this.elementMeshes.values());
+    const intersections = this.raycaster.intersectObjects(meshes, true);
+    for (const hit of intersections) {
+      const object = this.findSceneSelectableObject(hit.object);
+      if (!object) {
+        continue;
+      }
+      const kind = object.userData['kind'];
+      const elementId = object.userData['elementId'];
+      if (kind === 'element' && typeof elementId === 'string') {
+        if (this.selectedElementId() !== elementId) {
+          this.transformControls?.detach();
+          this.selectedElementId.set(elementId);
+          this.selectedWallId.set(null);
+          this.selectedRoomId.set(null);
+        }
+        return;
+      }
+      if (kind === 'wall' && typeof elementId === 'string') {
+        if (this.selectedWallId() !== elementId) {
+          this.transformControls?.detach();
+          this.selectedWallId.set(elementId);
+          this.selectedElementId.set(null);
+          this.selectedRoomId.set(null);
+        }
+        return;
+      }
+    }
+    if (this.selectedElementId() || this.selectedWallId() || this.selectedRoomId()) {
+      this.transformControls?.detach();
+      this.selectedElementId.set(null);
+      this.selectedWallId.set(null);
+      this.selectedRoomId.set(null);
+    }
+  }
+
+  private findSceneSelectableObject(object: THREE.Object3D | null): THREE.Object3D | null {
+    let current: THREE.Object3D | null = object;
+    while (current) {
+      if (current.userData && current.userData['elementId']) {
+        return current;
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
+  private attachTransformControlsToSelection() {
+    const controls = this.transformControls;
+    if (!controls || controls.dragging) {
+      return;
+    }
+    const selectedId = this.selectedElementId();
+    if (!selectedId) {
+      if (controls.object) {
+        controls.detach();
+      }
+      return;
+    }
+    const mesh = this.elementMeshes.get(selectedId);
+    if (!mesh) {
+      controls.detach();
+      return;
+    }
+    if (controls.object !== mesh) {
+      controls.attach(mesh);
+    }
+    this.updateTransformControlMode(this.transformMode());
+  }
+
+  private updateTransformControlMode(mode: TransformMode) {
+    const controls = this.transformControls;
+    if (!controls) {
+      return;
+    }
+    controls.setMode(mode);
+    if (mode === 'translate') {
+      controls.showX = true;
+      controls.showY = false;
+      controls.showZ = true;
+    } else if (mode === 'rotate') {
+      controls.showX = false;
+      controls.showY = true;
+      controls.showZ = false;
+    } else {
+      controls.showX = true;
+      controls.showY = true;
+      controls.showZ = true;
+    }
+  }
+
+  private commitTransformControls() {
+    const controls = this.transformControls;
+    const object = controls?.object;
+    if (!object) {
+      return;
+    }
+    const elementId = object.userData?.['elementId'];
+    if (typeof elementId !== 'string') {
+      return;
+    }
+    const element = this.elements().find((item) => item.id === elementId);
+    if (!element) {
+      return;
+    }
+    const nextPosition = {
+      x: Number(object.position.x.toFixed(3)),
+      y: Number((-object.position.z).toFixed(3)),
+    };
+    const rotationDeg = THREE.MathUtils.radToDeg(object.rotation.y);
+    const normalizedRotation = ((rotationDeg % 360) + 360) % 360;
+    const nextRotation = Number(normalizedRotation.toFixed(2));
+    const nextWidth = Math.max(0.05, Number((element.width * object.scale.x).toFixed(3)));
+    const nextDepth = Math.max(0.05, Number((element.depth * object.scale.z).toFixed(3)));
+    const nextHeight = Math.max(0.05, Number((element.height * object.scale.y).toFixed(3)));
+
+    const changed =
+      Math.abs(nextPosition.x - element.position.x) > 1e-3 ||
+      Math.abs(nextPosition.y - element.position.y) > 1e-3 ||
+      Math.abs(nextWidth - element.width) > 1e-3 ||
+      Math.abs(nextDepth - element.depth) > 1e-3 ||
+      Math.abs(nextHeight - element.height) > 1e-3 ||
+      Math.abs(nextRotation - (element.rotation ?? 0)) > 1e-2;
+
+    if (changed) {
+      this.elements.update((items) =>
+        items.map((item) =>
+          item.id === elementId
+            ? {
+                ...item,
+                position: nextPosition,
+                width: nextWidth,
+                depth: nextDepth,
+                height: nextHeight,
+                rotation: nextRotation,
+              }
+            : item
+        )
+      );
+    }
+
+    object.scale.set(1, 1, 1);
+    object.rotation.set(0, THREE.MathUtils.degToRad(nextRotation), 0);
+    object.position.set(nextPosition.x, nextHeight / 2, -nextPosition.y);
+    this.attachTransformControlsToSelection();
   }
 
   private renderPlan() {
@@ -2712,6 +2994,19 @@ export class EditorComponent implements OnInit, OnDestroy {
     return this.viewMode() === mode;
   }
 
+  setTransformMode(mode: TransformMode) {
+    if (this.transformMode() === mode) {
+      return;
+    }
+    this.transformMode.set(mode);
+    this.updateTransformControlMode(mode);
+    this.attachTransformControlsToSelection();
+  }
+
+  isTransformMode(mode: TransformMode) {
+    return this.transformMode() === mode;
+  }
+
   @HostListener('window:keydown', ['$event'])
   handleGlobalKeydown(event: KeyboardEvent) {
     if (!this.isSingleUserMode) {
@@ -2736,6 +3031,29 @@ export class EditorComponent implements OnInit, OnDestroy {
     } else if ((key === 'z' && event.shiftKey) || key === 'y') {
       event.preventDefault();
       this.redo();
+    }
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  handleTransformModeKeydown(event: KeyboardEvent) {
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
+      return;
+    }
+    const target = event.target as HTMLElement | null;
+    if (target) {
+      const tagName = target.tagName?.toLowerCase();
+      const contentEditable = target.getAttribute?.('contenteditable');
+      if (tagName === 'input' || tagName === 'textarea' || contentEditable === 'true') {
+        return;
+      }
+    }
+    const modeKey = event.key.toLowerCase();
+    if (modeKey === 'w') {
+      this.setTransformMode('translate');
+    } else if (modeKey === 'e') {
+      this.setTransformMode('rotate');
+    } else if (modeKey === 'r') {
+      this.setTransformMode('scale');
     }
   }
 
@@ -2777,7 +3095,7 @@ export class EditorComponent implements OnInit, OnDestroy {
       this.cursors.send(this.currentSpaceId, canvasPoint.x, canvasPoint.y);
     }
     if (this.dragState) {
-      this.moveDraggedElement(world);
+      this.moveDraggedElement(world, event);
     }
   }
 
@@ -2900,6 +3218,7 @@ export class EditorComponent implements OnInit, OnDestroy {
             this.dragState = {
               elementId: hit.id,
               offset: { x: world.x - hit.position.x, y: world.y - hit.position.y },
+              origin: { ...hit.position },
             };
           } else {
             this.selectedElementId.set(null);
@@ -2949,17 +3268,33 @@ export class EditorComponent implements OnInit, OnDestroy {
     this.localCursor.set(null);
   }
 
-  private moveDraggedElement(world: { x: number; y: number }) {
+  private moveDraggedElement(world: { x: number; y: number }, event?: PointerEvent) {
     if (!this.dragState) {
       return;
     }
-    const { elementId, offset } = this.dragState;
+    const { elementId, offset, origin } = this.dragState;
+    let nextX = world.x - offset.x;
+    let nextY = world.y - offset.y;
+
+    if (event?.shiftKey) {
+      const deltaX = Math.abs(nextX - origin.x);
+      const deltaY = Math.abs(nextY - origin.y);
+      if (deltaX >= deltaY) {
+        nextY = origin.y;
+      } else {
+        nextX = origin.x;
+      }
+    }
+
     this.elements.update((items) =>
       items.map((item) =>
         item.id === elementId
           ? {
               ...item,
-              position: { x: world.x - offset.x, y: world.y - offset.y },
+              position: {
+                x: Number(nextX.toFixed(3)),
+                y: Number(nextY.toFixed(3)),
+              },
             }
           : item
       )
@@ -3703,6 +4038,9 @@ export class EditorComponent implements OnInit, OnDestroy {
 
     for (const [id, object] of Array.from(this.elementMeshes.entries())) {
       if (!expectedIds.has(id)) {
+        if (this.transformControls?.object === object) {
+          this.transformControls.detach();
+        }
         this.sceneBundle.scene.remove(object);
         this.disposeObject(object);
         this.elementMeshes.delete(id);
@@ -3712,6 +4050,9 @@ export class EditorComponent implements OnInit, OnDestroy {
     for (const element of elements) {
       const existing = this.elementMeshes.get(element.id);
       if (existing) {
+        if (this.transformControls?.object === existing) {
+          this.transformControls.detach();
+        }
         this.sceneBundle.scene.remove(existing);
         this.disposeObject(existing);
         this.elementMeshes.delete(element.id);
@@ -3732,6 +4073,9 @@ export class EditorComponent implements OnInit, OnDestroy {
           const key = `wall:${wall.id}`;
           const existing = this.elementMeshes.get(key);
           if (existing) {
+            if (this.transformControls?.object === existing) {
+              this.transformControls.detach();
+            }
             this.sceneBundle.scene.remove(existing);
             this.disposeObject(existing);
             this.elementMeshes.delete(key);
@@ -3743,16 +4087,25 @@ export class EditorComponent implements OnInit, OnDestroy {
     }
 
     this.highlightSelectionInScene();
+    this.attachTransformControlsToSelection();
   }
 
   private disposeSceneBundle() {
+    this.detachScenePointerHandlers();
     if (!this.sceneBundle) {
+      this.transformControls?.dispose?.();
+      this.transformControls = undefined;
       this.sceneRenderEffect?.destroy();
       this.sceneRenderEffect = undefined;
       return;
     }
     this.sceneRenderEffect?.destroy();
     this.sceneRenderEffect = undefined;
+    if (this.transformControls) {
+      this.sceneBundle.scene.remove(this.transformControls as unknown as THREE.Object3D);
+      this.transformControls.dispose?.();
+      this.transformControls = undefined;
+    }
     for (const object of this.elementMeshes.values()) {
       this.sceneBundle.scene.remove(object);
       this.disposeObject(object);
