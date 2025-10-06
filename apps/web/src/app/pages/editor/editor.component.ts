@@ -3285,8 +3285,9 @@ export class EditorComponent implements OnInit, OnDestroy {
 
   private drawPlanElement(ctx: CanvasRenderingContext2D, element: EditorElement) {
     const canvasPosition = this.worldToCanvas(element.position);
-    const widthPx = element.width * this.pixelsPerMeter;
-    const depthPx = element.depth * this.pixelsPerMeter;
+    const factor = this.pixelsPerMeter * this.planView().scale;
+    const widthPx = element.width * factor;
+    const depthPx = element.depth * factor;
     const rotation = ((element.rotation ?? 0) * Math.PI) / 180;
     const palette = this.elementColor(element.type);
 
@@ -3318,8 +3319,9 @@ export class EditorComponent implements OnInit, OnDestroy {
 
   private drawSelectionOutline(ctx: CanvasRenderingContext2D, element: EditorElement) {
     const canvasPosition = this.worldToCanvas(element.position);
-    const widthPx = element.width * this.pixelsPerMeter;
-    const depthPx = element.depth * this.pixelsPerMeter;
+    const factor = this.pixelsPerMeter * this.planView().scale;
+    const widthPx = element.width * factor;
+    const depthPx = element.depth * factor;
     const rotation = ((element.rotation ?? 0) * Math.PI) / 180;
 
     ctx.save();
@@ -3648,9 +3650,6 @@ export class EditorComponent implements OnInit, OnDestroy {
 
   @HostListener('window:keydown', ['$event'])
   handleGlobalKeydown(event: KeyboardEvent) {
-    if (!this.isSingleUserMode) {
-      return;
-    }
     const target = event.target as HTMLElement | null;
     if (target) {
       const tagName = target.tagName?.toLowerCase();
@@ -3664,6 +3663,12 @@ export class EditorComponent implements OnInit, OnDestroy {
       if (this.handleDeleteShortcut()) {
         event.preventDefault();
       }
+      if (!this.isSingleUserMode) {
+        return;
+      }
+      return;
+    }
+    if (!this.isSingleUserMode) {
       return;
     }
     if (!isModifier) {
@@ -3956,6 +3961,15 @@ export class EditorComponent implements OnInit, OnDestroy {
     );
   }
 
+  onPlanKeyDown(event: KeyboardEvent) {
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      if (this.handleDeleteShortcut()) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }
+  }
+
   private computeAlignmentSnap(
     elementId: string,
     base: { x: number; y: number }
@@ -4211,6 +4225,9 @@ export class EditorComponent implements OnInit, OnDestroy {
     if (!elementId) {
       return;
     }
+    if (this.isSingleUserMode) {
+      this.pushHistorySnapshot();
+    }
     if (this.transformControls?.object?.userData?.['elementId'] === elementId) {
       this.transformControls.detach();
       this.activeTransformElementId = null;
@@ -4229,15 +4246,14 @@ export class EditorComponent implements OnInit, OnDestroy {
   }
 
   private deleteSelectedWall() {
-    if (!this.isSingleUserMode) {
-      return;
-    }
     const wallId = this.selectedWallId();
     const floor = this.activeFloorState();
     if (!wallId || !floor) {
       return;
     }
-    this.pushHistorySnapshot();
+    if (this.isSingleUserMode) {
+      this.pushHistorySnapshot();
+    }
     const wallKey = `wall:${wallId}`;
     const existingWall = this.elementMeshes.get(wallKey);
     if (existingWall && this.sceneBundle) {
@@ -4262,15 +4278,14 @@ export class EditorComponent implements OnInit, OnDestroy {
   }
 
   private deleteSelectedRoom() {
-    if (!this.isSingleUserMode) {
-      return;
-    }
     const roomId = this.selectedRoomId();
     const floor = this.activeFloorState();
     if (!roomId || !floor) {
       return;
     }
-    this.pushHistorySnapshot();
+    if (this.isSingleUserMode) {
+      this.pushHistorySnapshot();
+    }
     this.floorsState.update((floors) =>
       floors.map((state) =>
         state.floor.id === floor.floor.id
@@ -5272,6 +5287,10 @@ export class EditorComponent implements OnInit, OnDestroy {
     anchor.rotation.set(0, rotationRad + flipRotation, 0);
     if (visual) {
       visual.position.set(0, element.height / 2, 0);
+      visual.scale.set(1, 1, 1);
+      if (element.flipLeftRight) {
+        visual.scale.x = -1;
+      }
     }
   }
 

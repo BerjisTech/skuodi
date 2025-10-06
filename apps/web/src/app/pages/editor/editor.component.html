@@ -141,6 +141,7 @@
                 (pointercancel)="onPlanPointerUp($event)"
                 (pointerleave)="onPlanPointerLeave()"
                 (wheel)="onPlanWheel($event)"
+                (keydown)="onPlanKeyDown($event)"
               ></canvas>
               <div
                 *ngIf="selectedWall() as wall"
