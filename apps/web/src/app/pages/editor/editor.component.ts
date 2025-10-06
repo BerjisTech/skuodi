@@ -11,6 +11,8 @@ import {
   inject,
   signal,
   HostListener,
+  Injector,
+  runInInjectionContext,
 } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subscription, combineLatest, filter, map, of, switchMap } from 'rxjs';
@@ -2057,7 +2059,14 @@ export class EditorComponent implements OnInit, OnDestroy {
   private drawRoomStart: { x: number; y: number } | null = null;
   private wallPreview: { start: { x: number; y: number }; end: { x: number; y: number } } | null = null;
   private roomPreview: { start: { x: number; y: number }; end: { x: number; y: number } } | null = null;
-  private panState: { pointerId: number; start: { x: number; y: number }; origin: { offsetX: number; offsetY: number } } | null = null;
+  private panState:
+    | {
+        pointerId: number;
+        start: { x: number; y: number };
+        origin: { offsetX: number; offsetY: number };
+        originWorld: { x: number; y: number };
+      }
+    | null = null;
 
   readonly quickStartTemplates: QuickStartTemplate[] = this.isSingleUserMode ? this.buildQuickStartTemplates() : [];
   readonly viewMode = signal<ViewMode>('plan');
@@ -2107,6 +2116,7 @@ export class EditorComponent implements OnInit, OnDestroy {
 
   private planCanvas?: ElementRef<HTMLCanvasElement>;
   private sceneCanvas?: ElementRef<HTMLCanvasElement>;
+  private readonly injector = inject(Injector);
 
   @ViewChild('planCanvas', { static: false })
   set planCanvasRef(value: ElementRef<HTMLCanvasElement> | undefined) {
@@ -2114,15 +2124,17 @@ export class EditorComponent implements OnInit, OnDestroy {
       this.planCanvas = value;
       this.preparePlanCanvas(value.nativeElement);
       if (!this.planRenderEffect) {
-        this.planRenderEffect = effect(() => {
-          this.elements();
-          this.floorsState();
-          this.activeFloorId();
-          this.selectedElementId();
-          this.selectedWallId();
-          this.selectedRoomId();
-          this.planView();
-          this.renderPlan();
+        runInInjectionContext(this.injector, () => {
+          this.planRenderEffect = effect(() => {
+            this.elements();
+            this.floorsState();
+            this.activeFloorId();
+            this.selectedElementId();
+            this.selectedWallId();
+            this.selectedRoomId();
+            this.planView();
+            this.renderPlan();
+          });
         });
       }
     } else {
@@ -2153,19 +2165,21 @@ export class EditorComponent implements OnInit, OnDestroy {
     if (this.isSingleUserMode) {
       const { hasElements } = this.restoreLocalPlanSnapshot();
       this.ensureInitialFloor();
-      this.localPlanEffect = effect(() => {
-        this.writeLocalPlanSnapshot({
-          elements: this.elements(),
-          importedAssets: this.importedAssets(),
-          lastElementId: this.lastElementId,
-          lastAssetId: this.lastAssetId,
-          elementCounters: { ...this.elementCounters },
-          selectedToolId: this.selectedToolId(),
-          selectedElementId: this.selectedElementId(),
-          onboardingDismissed: this.onboardingDismissed(),
-          floors: this.floorsState(),
-          activeFloorId: this.activeFloorId(),
-          viewMode: this.viewMode(),
+      runInInjectionContext(this.injector, () => {
+        this.localPlanEffect = effect(() => {
+          this.writeLocalPlanSnapshot({
+            elements: this.elements(),
+            importedAssets: this.importedAssets(),
+            lastElementId: this.lastElementId,
+            lastAssetId: this.lastAssetId,
+            elementCounters: { ...this.elementCounters },
+            selectedToolId: this.selectedToolId(),
+            selectedElementId: this.selectedElementId(),
+            onboardingDismissed: this.onboardingDismissed(),
+            floors: this.floorsState(),
+            activeFloorId: this.activeFloorId(),
+            viewMode: this.viewMode(),
+          });
         });
       });
       if (!this.onboardingDismissed() && !hasElements) {
@@ -2213,10 +2227,14 @@ export class EditorComponent implements OnInit, OnDestroy {
     animate(bundle, () => resizeRenderer(bundle));
     this.sceneBundle = bundle;
     if (!this.sceneRenderEffect) {
-      this.sceneRenderEffect = effect(() => {
-        this.elements();
-        this.selectedElementId();
-        this.syncSceneElements();
+      runInInjectionContext(this.injector, () => {
+        this.sceneRenderEffect = effect(() => {
+          this.elements();
+          this.floorsState();
+          this.selectedElementId();
+          this.selectedWallId();
+          this.syncSceneElements();
+        });
       });
     }
     this.syncSceneElements();
@@ -2728,16 +2746,17 @@ export class EditorComponent implements OnInit, OnDestroy {
     }
     const world = this.canvasToWorld(canvasPoint);
     if (this.panState) {
+      const canvas = this.planCanvas?.nativeElement;
+      if (!canvas) {
+        return;
+      }
       const view = this.planView();
       const factor = this.pixelsPerMeter * view.scale;
-      const deltaX = canvasPoint.x - this.panState.start.x;
-      const deltaY = canvasPoint.y - this.panState.start.y;
-      const nextView = {
-        scale: view.scale,
-        offsetX: this.panState.origin.offsetX - deltaX / factor,
-        offsetY: this.panState.origin.offsetY + deltaY / factor,
-      };
-      this.planView.set(nextView);
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const offsetX = (canvasPoint.x - centerX) / factor - this.panState.originWorld.x;
+      const offsetY = (centerY - canvasPoint.y) / factor - this.panState.originWorld.y;
+      this.planView.set({ scale: view.scale, offsetX, offsetY });
       this.renderPlan();
       return;
     }
@@ -2808,19 +2827,30 @@ export class EditorComponent implements OnInit, OnDestroy {
     if (!canvasPoint) {
       return;
     }
-    const world = this.canvasToWorld(canvasPoint);
     const toolId = this.selectedToolId();
-    const isPanGesture = event.button === 1 || event.button === 2 || (event.button === 0 && event.altKey);
-    if (isPanGesture) {
+    const world = this.canvasToWorld(canvasPoint);
+    const capturePointer = () => {
       if (event.pointerId && event.target instanceof HTMLElement) {
         event.target.setPointerCapture(event.pointerId);
+        return true;
       }
+      return false;
+    };
+    const beginPan = () => {
+      pointerCaptured = capturePointer();
       const view = this.planView();
+      const originWorld = this.canvasToWorld({ x: canvasPoint.x, y: canvasPoint.y });
       this.panState = {
         pointerId: event.pointerId ?? -1,
         start: { x: canvasPoint.x, y: canvasPoint.y },
         origin: { offsetX: view.offsetX, offsetY: view.offsetY },
+        originWorld,
       };
+    };
+    let pointerCaptured = false;
+    const isPanGesture = event.button === 1 || event.button === 2 || (event.button === 0 && event.altKey);
+    if (isPanGesture) {
+      beginPan();
       return;
     }
     if (toolId === 'draw-wall' && this.isSingleUserMode) {
@@ -2876,12 +2906,16 @@ export class EditorComponent implements OnInit, OnDestroy {
             this.selectedWallId.set(null);
             this.selectedRoomId.set(null);
             this.wallResizeMode.set('both');
+            if (event.button === 0) {
+              beginPan();
+              return;
+            }
           }
         }
       }
     }
-    if (event.pointerId && event.target instanceof HTMLElement) {
-      event.target.setPointerCapture(event.pointerId);
+    if (!pointerCaptured) {
+      pointerCaptured = capturePointer();
     }
   }
 
@@ -3696,6 +3730,12 @@ export class EditorComponent implements OnInit, OnDestroy {
         const object = this.buildObjectForWall(wall, floor.floor, nodeMap);
         if (object) {
           const key = `wall:${wall.id}`;
+          const existing = this.elementMeshes.get(key);
+          if (existing) {
+            this.sceneBundle.scene.remove(existing);
+            this.disposeObject(existing);
+            this.elementMeshes.delete(key);
+          }
           this.sceneBundle.scene.add(object);
           this.elementMeshes.set(key, object);
         }
