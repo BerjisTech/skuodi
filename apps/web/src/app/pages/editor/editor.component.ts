@@ -2972,10 +2972,7 @@ export class EditorComponent implements OnInit, OnDestroy {
 
     const finalElement = updatedElement ?? element;
     object.scale.set(1, 1, 1);
-    const rotationRad = THREE.MathUtils.degToRad(finalElement.rotation ?? 0);
-    const flipRotation = finalElement.flipFrontBack ? Math.PI : 0;
-    object.rotation.set(0, rotationRad + flipRotation, 0);
-    object.position.set(finalElement.position.x, finalElement.height / 2, -finalElement.position.y);
+    this.applyTransform(object, finalElement);
     this.attachTransformControlsToSelection();
   }
 
@@ -4214,10 +4211,21 @@ export class EditorComponent implements OnInit, OnDestroy {
     if (!elementId) {
       return;
     }
+    if (this.transformControls?.object?.userData?.['elementId'] === elementId) {
+      this.transformControls.detach();
+      this.activeTransformElementId = null;
+    }
+    const existing = this.elementMeshes.get(elementId);
+    if (existing && this.sceneBundle) {
+      this.sceneBundle.scene.remove(existing);
+      this.disposeObject(existing);
+      this.elementMeshes.delete(elementId);
+    }
     this.elements.update((items) => items.filter((item) => item.id !== elementId));
     this.selectedElementId.set(null);
     this.dragState = undefined;
     this.alignmentGuides = { x: null, y: null };
+    this.renderPlan();
   }
 
   private deleteSelectedWall() {
@@ -4230,6 +4238,13 @@ export class EditorComponent implements OnInit, OnDestroy {
       return;
     }
     this.pushHistorySnapshot();
+    const wallKey = `wall:${wallId}`;
+    const existingWall = this.elementMeshes.get(wallKey);
+    if (existingWall && this.sceneBundle) {
+      this.sceneBundle.scene.remove(existingWall);
+      this.disposeObject(existingWall);
+      this.elementMeshes.delete(wallKey);
+    }
     this.floorsState.update((floors) =>
       floors.map((state) =>
         state.floor.id === floor.floor.id
@@ -4241,6 +4256,7 @@ export class EditorComponent implements OnInit, OnDestroy {
     this.selectedElementId.set(null);
     this.selectedRoomId.set(null);
     this.dragState = undefined;
+    this.wallHandleDrag = undefined;
     this.alignmentGuides = { x: null, y: null };
     this.renderPlan();
   }
@@ -4267,13 +4283,11 @@ export class EditorComponent implements OnInit, OnDestroy {
     this.selectedWallId.set(null);
     this.dragState = undefined;
     this.alignmentGuides = { x: null, y: null };
+    this.wallHandleDrag = undefined;
     this.renderPlan();
   }
 
   private handleDeleteShortcut() {
-    if (!this.isSingleUserMode) {
-      return false;
-    }
     if (this.selectedElementId()) {
       this.deleteSelectedElement();
       return true;
@@ -5047,9 +5061,14 @@ export class EditorComponent implements OnInit, OnDestroy {
       return null;
     }
 
+    const anchor = new THREE.Group();
+    anchor.userData['elementId'] = element.id;
+    anchor.userData['kind'] = 'element';
+    anchor.userData['visual'] = object;
     object.userData['elementId'] = element.id;
-    this.applyTransform(object, element);
-    return object;
+    anchor.add(object);
+    this.applyTransform(anchor, element);
+    return anchor;
   }
 
   private buildBlock(element: EditorElement, material: THREE.Material) {
@@ -5244,10 +5263,16 @@ export class EditorComponent implements OnInit, OnDestroy {
     return mesh;
   }
 
-  private applyTransform(object: THREE.Object3D, element: EditorElement) {
-    const y = element.height / 2;
-    object.position.set(element.position.x, y, -element.position.y);
-    object.rotation.y = THREE.MathUtils.degToRad(element.rotation ?? 0);
+  private applyTransform(anchor: THREE.Object3D, element: EditorElement) {
+    const visual = anchor.userData?.['visual'] as THREE.Object3D | undefined;
+    anchor.position.set(element.position.x, 0, -element.position.y);
+    anchor.scale.set(1, 1, 1);
+    const rotationRad = THREE.MathUtils.degToRad(element.rotation ?? 0);
+    const flipRotation = element.flipFrontBack ? Math.PI : 0;
+    anchor.rotation.set(0, rotationRad + flipRotation, 0);
+    if (visual) {
+      visual.position.set(0, element.height / 2, 0);
+    }
   }
 
   private highlightSelectionInScene() {
