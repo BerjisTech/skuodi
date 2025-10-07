@@ -19,6 +19,7 @@ import { Subscription, combineLatest, filter, map, of, switchMap } from 'rxjs';
 import { CursorService } from '@kouru/collab';
 import { createScene, resizeRenderer, animate, addGrid } from '@kouru/three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import * as THREE from 'three';
 import { FormsModule } from '@angular/forms';
 import { ProjectsService } from '../../core/services/projects.service';
@@ -37,7 +38,7 @@ type EditorElementType =
   | 'corridor'
   | 'custom';
 
-type NumericProperty = 'width' | 'depth' | 'height' | 'thickness' | 'angle';
+type NumericProperty = 'width' | 'depth' | 'height' | 'thickness' | 'angle' | 'baseElevation';
 
 interface EditorElement {
   id: string;
@@ -56,6 +57,7 @@ interface EditorElement {
   wallParam?: number;
   flipFrontBack?: boolean;
   flipLeftRight?: boolean;
+  baseElevation?: number;
 }
 
 interface ToolDefinition {
@@ -247,6 +249,7 @@ export class EditorComponent implements OnInit, OnDestroy {
   public showGroupTool!: ToolGroup;
 
   private readonly pixelsPerMeter = 80;
+  private readonly defaultWindowSillHeight = 1.2192; // 4 ft in meters
   readonly isSingleUserMode = this.mode === 'single';
   readonly toolGroups: ToolGroup[] = this.isSingleUserMode
     ? this.buildSingleUserToolGroups()
@@ -315,8 +318,14 @@ export class EditorComponent implements OnInit, OnDestroy {
             label: 'Window',
             description: 'Glazing opening with frame.',
             icon: '🪟',
-            defaults: { width: 1.5, depth: 0.15, height: 1.4, thickness: 0.15 },
-            editable: ['width', 'height', 'thickness'],
+            defaults: {
+              width: 1.5,
+              depth: 0.15,
+              height: 1.4,
+              thickness: 0.15,
+              baseElevation: this.defaultWindowSillHeight,
+            },
+            editable: ['width', 'height', 'thickness', 'baseElevation'],
           },
         ],
       },
@@ -388,8 +397,14 @@ export class EditorComponent implements OnInit, OnDestroy {
             label: 'Window',
             description: 'Glazing opening with frame.',
             icon: '🪟',
-            defaults: { width: 1.5, depth: 0.15, height: 1.4, thickness: 0.15 },
-            editable: ['width', 'height', 'thickness'],
+            defaults: {
+              width: 1.5,
+              depth: 0.15,
+              height: 1.4,
+              thickness: 0.15,
+              baseElevation: this.defaultWindowSillHeight,
+            },
+            editable: ['width', 'height', 'thickness', 'baseElevation'],
           },
           {
             id: 'stairs',
@@ -982,6 +997,11 @@ export class EditorComponent implements OnInit, OnDestroy {
         : undefined;
     const flipFrontBack = raw['flipFrontBack'] === true;
     const flipLeftRight = raw['flipLeftRight'] === true;
+    const baseElevationRaw = raw['baseElevation'];
+    const baseElevation =
+      typeof baseElevationRaw === 'number' && Number.isFinite(baseElevationRaw) && baseElevationRaw >= 0
+        ? baseElevationRaw
+        : undefined;
 
     return {
       id,
@@ -1000,6 +1020,7 @@ export class EditorComponent implements OnInit, OnDestroy {
       wallParam: wallParam ?? undefined,
       flipFrontBack,
       flipLeftRight,
+      baseElevation,
     };
   }
 
@@ -2920,8 +2941,11 @@ export class EditorComponent implements OnInit, OnDestroy {
       x: Number(object.position.x.toFixed(3)),
       y: Number((-object.position.z).toFixed(3)),
     };
-    const rotationDeg = THREE.MathUtils.radToDeg(object.rotation.y);
-    const normalizedRotation = ((rotationDeg % 360) + 360) % 360;
+    const flipRotation = element.flipFrontBack ? Math.PI : 0;
+    const worldRotation = object.rotation.y - flipRotation;
+    const planRotationRad = -worldRotation;
+    const planRotationDeg = THREE.MathUtils.radToDeg(planRotationRad);
+    const normalizedRotation = ((planRotationDeg % 360) + 360) % 360;
     const nextRotation = Number(normalizedRotation.toFixed(2));
     const nextWidth = Math.max(0.05, Number((element.width * object.scale.x).toFixed(3)));
     const nextDepth = Math.max(0.05, Number((element.depth * object.scale.z).toFixed(3)));
@@ -4095,6 +4119,7 @@ export class EditorComponent implements OnInit, OnDestroy {
       overrides.wallParam ?? defaults.wallParam ?? (attachedWallId ? 0.5 : undefined);
     const flipFrontBack = overrides.flipFrontBack ?? defaults.flipFrontBack ?? false;
     const flipLeftRight = overrides.flipLeftRight ?? defaults.flipLeftRight ?? false;
+    const baseElevation = overrides.baseElevation ?? defaults.baseElevation ?? (tool.type === 'window' ? this.defaultWindowSillHeight : 0);
     const name =
       overrides.name ??
       defaults.name ??
@@ -4119,6 +4144,7 @@ export class EditorComponent implements OnInit, OnDestroy {
       wallParam,
       flipFrontBack,
       flipLeftRight,
+      baseElevation,
     };
   }
 
@@ -4166,6 +4192,8 @@ export class EditorComponent implements OnInit, OnDestroy {
         return 'Thickness (m)';
       case 'angle':
         return 'Angle (°)';
+      case 'baseElevation':
+        return 'Sill height (m)';
       default:
         return property;
     }
@@ -4193,7 +4221,8 @@ export class EditorComponent implements OnInit, OnDestroy {
     if (Number.isNaN(numeric)) {
       return;
     }
-    const next = Math.max(0.05, numeric);
+    const minValue = key === 'angle' ? 0 : key === 'baseElevation' ? 0 : 0.05;
+    const next = Math.max(minValue, numeric);
     this.elements.update((items) =>
       items.map((item) => (item.id === element.id ? { ...item, [key]: next } : item))
     );
@@ -4211,6 +4240,10 @@ export class EditorComponent implements OnInit, OnDestroy {
   }
 
   getNumericProperty(element: EditorElement, property: NumericProperty) {
+    if (property === 'baseElevation') {
+      const fallback = element.type === 'window' ? this.defaultWindowSillHeight : 0;
+      return element.baseElevation ?? fallback;
+    }
     return (element as Record<NumericProperty, number | undefined>)[property] ?? 0;
   }
 
@@ -4351,6 +4384,7 @@ export class EditorComponent implements OnInit, OnDestroy {
       flipFrontBack: element.flipFrontBack,
       flipLeftRight: element.flipLeftRight,
       name: `${element.name} Copy`,
+      baseElevation: element.baseElevation,
     });
     if (this.elementRequiresWall(clone.type)) {
       const attached = this.attachElementToNearestWall(clone, offsetPosition);
@@ -4957,7 +4991,8 @@ export class EditorComponent implements OnInit, OnDestroy {
     const width = element.width ?? 0;
     const depth = element.depth ?? 0;
     const angle = element.angle ?? 0;
-    return `${element.type}|${width.toFixed(4)}|${depth.toFixed(4)}|${height.toFixed(4)}|${thickness.toFixed(4)}|${angle.toFixed(4)}|${element.assetRef ?? ''}`;
+    const base = this.resolveElementBaseOffset(element);
+    return `${element.type}|${width.toFixed(4)}|${depth.toFixed(4)}|${height.toFixed(4)}|${thickness.toFixed(4)}|${angle.toFixed(4)}|${base.toFixed(4)}|${element.assetRef ?? ''}`;
   }
 
   private setTransformControlsVisible(visible: boolean) {
@@ -5020,7 +5055,7 @@ export class EditorComponent implements OnInit, OnDestroy {
     for (const floor of floors) {
       const nodeMap = new Map(floor.nodes.map((node) => [node.id, node] as const));
       for (const wall of floor.walls) {
-        const object = this.buildObjectForWall(wall, floor.floor, nodeMap);
+        const object = this.buildObjectForWall(wall, floor.floor, nodeMap, elements);
         if (object) {
           const key = `wall:${wall.id}`;
           const existing = this.elementMeshes.get(key);
@@ -5121,6 +5156,7 @@ export class EditorComponent implements OnInit, OnDestroy {
     const anchor = new THREE.Group();
     anchor.userData['elementId'] = element.id;
     anchor.userData['kind'] = 'element';
+    anchor.userData['wallId'] = element.attachedWallId ?? null;
     anchor.userData['visual'] = object;
     object.userData['elementId'] = element.id;
     anchor.add(object);
@@ -5291,7 +5327,12 @@ export class EditorComponent implements OnInit, OnDestroy {
     return mesh;
   }
 
-  private buildObjectForWall(wall: PlanWall, floor: PlanFloor, nodeMap: Map<string, PlanNode>) {
+  private buildObjectForWall(
+    wall: PlanWall,
+    floor: PlanFloor,
+    nodeMap: Map<string, PlanNode>,
+    elements: EditorElement[]
+  ) {
     const startNode = nodeMap.get(wall.startNodeId);
     const endNode = nodeMap.get(wall.endNodeId);
     if (!startNode || !endNode) {
@@ -5305,35 +5346,153 @@ export class EditorComponent implements OnInit, OnDestroy {
     if (length < 1e-6) {
       return null;
     }
-    const geometry = new THREE.BoxGeometry(length, wall.height, wall.thickness);
     const material = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, metalness: 0.1, roughness: 0.6 });
-    const mesh = new THREE.Mesh(geometry, material);
+
+    const openings = elements
+      .filter((element) => this.elementRequiresWall(element.type) && element.attachedWallId === wall.id)
+      .map((element) => {
+        const param = element.wallParam ?? 0.5;
+        const clampedParam = Math.max(0, Math.min(1, param));
+        const center = clampedParam * length;
+        const halfWidth = Math.max(0, Math.min(element.width / 2, length / 2));
+        const startDistance = Math.max(0, Math.min(length, center - halfWidth));
+        const endDistance = Math.max(0, Math.min(length, center + halfWidth));
+        const baseOffset = this.resolveElementBaseOffset(element);
+        const bottom = Math.max(0, Math.min(wall.height, baseOffset));
+        const top = Math.max(bottom, Math.min(wall.height, baseOffset + element.height));
+        return {
+          start: startDistance,
+          end: endDistance,
+          bottom,
+          top,
+        };
+      })
+      .filter((opening) => opening.end - opening.start > 1e-4 && opening.top - opening.bottom > 1e-4);
+
+    const horizontalBreaks = new Set<number>([0, length]);
+    openings.forEach((opening) => {
+      horizontalBreaks.add(opening.start);
+      horizontalBreaks.add(opening.end);
+    });
+    const sortedHorizontal = Array.from(horizontalBreaks).sort((a, b) => a - b);
+
+    const verticalBreaks = new Set<number>([0, wall.height]);
+    openings.forEach((opening) => {
+      verticalBreaks.add(opening.bottom);
+      verticalBreaks.add(opening.top);
+    });
+    const sortedVertical = Array.from(verticalBreaks).sort((a, b) => a - b);
+
+    const geometries: THREE.BufferGeometry[] = [];
+    const epsilon = 1e-4;
+
+    for (let i = 0; i < sortedHorizontal.length - 1; i += 1) {
+      const left = sortedHorizontal[i];
+      const right = sortedHorizontal[i + 1];
+      const width = right - left;
+      if (width <= epsilon) {
+        continue;
+      }
+      const midX = (left + right) / 2;
+
+      for (let j = 0; j < sortedVertical.length - 1; j += 1) {
+        const bottom = sortedVertical[j];
+        const top = sortedVertical[j + 1];
+        const heightSegment = top - bottom;
+        if (heightSegment <= epsilon) {
+          continue;
+        }
+        const midY = (bottom + top) / 2;
+        const insideOpening = openings.some(
+          (opening) =>
+            midX > opening.start - epsilon &&
+            midX < opening.end + epsilon &&
+            midY > opening.bottom - epsilon &&
+            midY < opening.top + epsilon
+        );
+        if (insideOpening) {
+          continue;
+        }
+        const geometry = new THREE.BoxGeometry(width, heightSegment, wall.thickness);
+        const localX = (left + right) / 2 - length / 2;
+        const localY = (bottom + top) / 2 - wall.height / 2;
+        geometry.translate(localX, localY, 0);
+        geometries.push(geometry);
+      }
+    }
+
+    if (!geometries.length) {
+      geometries.push(new THREE.BoxGeometry(length, wall.height, wall.thickness));
+    }
+
+    const mergedGeometry =
+      geometries.length === 1 ? geometries[0] : BufferGeometryUtils.mergeGeometries(geometries, false);
+
+    const mesh = new THREE.Mesh(mergedGeometry, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+
+    const group = new THREE.Group();
+    group.add(mesh);
+    group.userData['elementId'] = wall.id;
+    group.userData['kind'] = 'wall';
+
     const centerX = (start.x + end.x) / 2;
     const centerY = (start.y + end.y) / 2;
-    mesh.position.set(centerX, wall.baseElevation + wall.height / 2, -centerY);
-    const angle = Math.atan2(dy, dx);
-    mesh.rotation.y = -angle;
-    mesh.userData['elementId'] = wall.id;
-    mesh.userData['kind'] = 'wall';
-    return mesh;
+    const centerZ = -centerY;
+    group.position.set(centerX, floor.elevation + wall.baseElevation + wall.height / 2, centerZ);
+    const angle = Math.atan2(-dy, dx);
+    group.rotation.set(0, angle, 0);
+
+    return group;
   }
 
   private applyTransform(anchor: THREE.Object3D, element: EditorElement) {
     const visual = anchor.userData?.['visual'] as THREE.Object3D | undefined;
-    anchor.position.set(element.position.x, 0, -element.position.y);
+    const anchorY = this.resolveElementAnchorElevation(element);
+    anchor.position.set(element.position.x, anchorY, -element.position.y);
     anchor.scale.set(1, 1, 1);
     const rotationRad = THREE.MathUtils.degToRad(element.rotation ?? 0);
+    const worldRotation = -rotationRad;
     const flipRotation = element.flipFrontBack ? Math.PI : 0;
-    anchor.rotation.set(0, rotationRad + flipRotation, 0);
+    anchor.rotation.set(0, worldRotation + flipRotation, 0);
     if (visual) {
-      visual.position.set(0, element.height / 2, 0);
+      const baseOffset = this.resolveElementBaseOffset(element);
+      visual.position.set(0, baseOffset + element.height / 2, 0);
       visual.scale.set(1, 1, 1);
       if (element.flipLeftRight) {
         visual.scale.x = -1;
       }
     }
+  }
+
+  private resolveElementBaseOffset(element: EditorElement) {
+    const base = element.baseElevation ?? (element.type === 'window' ? this.defaultWindowSillHeight : 0);
+    return Math.max(0, base);
+  }
+
+  private resolveElementAnchorElevation(element: EditorElement) {
+    if (this.elementRequiresWall(element.type) && element.attachedWallId) {
+      const context = this.findWallContext(element.attachedWallId);
+      if (context) {
+        return context.floor.elevation + context.wall.baseElevation;
+      }
+    }
+    const active = this.activeFloorState();
+    return active?.floor.elevation ?? 0;
+  }
+
+  private findWallContext(wallId: string | null) {
+    if (!wallId) {
+      return null;
+    }
+    for (const state of this.floorsState()) {
+      const match = state.walls.find((wall) => wall.id === wallId);
+      if (match) {
+        return { floor: state.floor, wall: match };
+      }
+    }
+    return null;
   }
 
   private highlightSelectionInScene() {
