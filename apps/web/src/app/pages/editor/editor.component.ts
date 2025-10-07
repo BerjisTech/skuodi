@@ -2629,6 +2629,7 @@ export class EditorComponent implements OnInit, OnDestroy {
     addGrid(bundle.scene);
     const transformControls = new TransformControls(bundle.camera, bundle.renderer.domElement);
     transformControls.setMode(this.transformMode());
+    (transformControls as unknown as THREE.Object3D).visible = false;
     transformControls.addEventListener('dragging-changed', (event) => {
       bundle.controls.enabled = !event.value;
       if (event.value) {
@@ -2863,17 +2864,20 @@ export class EditorComponent implements OnInit, OnDestroy {
     if (!selectedId) {
       if (controls.object) {
         controls.detach();
+        this.setTransformControlsVisible(false);
       }
       return;
     }
     const mesh = this.elementMeshes.get(selectedId);
     if (!mesh) {
       controls.detach();
+      this.setTransformControlsVisible(false);
       return;
     }
     if (controls.object !== mesh) {
       controls.attach(mesh);
     }
+    this.setTransformControlsVisible(true);
     this.updateTransformControlMode(this.transformMode());
   }
 
@@ -3799,6 +3803,10 @@ export class EditorComponent implements OnInit, OnDestroy {
     if (!canvasPoint) {
       return;
     }
+    const planCanvas = this.planCanvas?.nativeElement;
+    if (planCanvas && planCanvas !== document.activeElement) {
+      planCanvas.focus({ preventScroll: true });
+    }
     const toolId = this.selectedToolId();
     const world = this.canvasToWorld(canvasPoint);
     const capturePointer = () => {
@@ -4221,15 +4229,17 @@ export class EditorComponent implements OnInit, OnDestroy {
   }
 
   deleteSelectedElement() {
-    const elementId = this.selectedElementId();
-    if (!elementId) {
+    const element = this.selectedElement();
+    if (!element) {
       return;
     }
+    const elementId = element.id;
     if (this.isSingleUserMode) {
       this.pushHistorySnapshot();
     }
     if (this.transformControls?.object?.userData?.['elementId'] === elementId) {
       this.transformControls.detach();
+      this.setTransformControlsVisible(false);
       this.activeTransformElementId = null;
     }
     const existing = this.elementMeshes.get(elementId);
@@ -4941,6 +4951,22 @@ export class EditorComponent implements OnInit, OnDestroy {
     return this.findToolByType(element.type) ?? null;
   });
 
+  private elementSignature(element: EditorElement) {
+    const thickness = element.thickness ?? 0;
+    const height = element.height ?? 0;
+    const width = element.width ?? 0;
+    const depth = element.depth ?? 0;
+    const angle = element.angle ?? 0;
+    return `${element.type}|${width.toFixed(4)}|${depth.toFixed(4)}|${height.toFixed(4)}|${thickness.toFixed(4)}|${angle.toFixed(4)}|${element.assetRef ?? ''}`;
+  }
+
+  private setTransformControlsVisible(visible: boolean) {
+    if (!this.transformControls) {
+      return;
+    }
+    (this.transformControls as unknown as THREE.Object3D).visible = visible;
+  }
+
   private syncSceneElements() {
     if (!this.sceneBundle) {
       return;
@@ -4957,6 +4983,7 @@ export class EditorComponent implements OnInit, OnDestroy {
       if (!expectedIds.has(id)) {
         if (this.transformControls?.object === object) {
           this.transformControls.detach();
+          this.setTransformControlsVisible(false);
         }
         this.sceneBundle.scene.remove(object);
         this.disposeObject(object);
@@ -4965,10 +4992,17 @@ export class EditorComponent implements OnInit, OnDestroy {
     }
 
     for (const element of elements) {
+      const signature = this.elementSignature(element);
       const existing = this.elementMeshes.get(element.id);
+      if (existing && existing.userData?.['signature'] === signature) {
+        this.applyTransform(existing, element);
+        existing.userData['signature'] = signature;
+        continue;
+      }
       if (existing) {
         if (this.transformControls?.object === existing) {
           this.transformControls.detach();
+          this.setTransformControlsVisible(false);
         }
         this.sceneBundle.scene.remove(existing);
         this.disposeObject(existing);
@@ -4976,8 +5010,9 @@ export class EditorComponent implements OnInit, OnDestroy {
       }
       const object = this.buildObjectForElement(element);
       if (object) {
-        this.sceneBundle.scene.add(object);
+        object.userData['signature'] = signature;
         object.userData['kind'] = 'element';
+        this.sceneBundle.scene.add(object);
         this.elementMeshes.set(element.id, object);
       }
     }
@@ -4992,6 +5027,7 @@ export class EditorComponent implements OnInit, OnDestroy {
           if (existing) {
             if (this.transformControls?.object === existing) {
               this.transformControls.detach();
+              this.setTransformControlsVisible(false);
             }
             this.sceneBundle.scene.remove(existing);
             this.disposeObject(existing);
@@ -5010,8 +5046,12 @@ export class EditorComponent implements OnInit, OnDestroy {
   private disposeSceneBundle() {
     this.detachScenePointerHandlers();
     if (!this.sceneBundle) {
-      this.transformControls?.dispose?.();
-      this.transformControls = undefined;
+      if (this.transformControls) {
+        this.transformControls.detach();
+        this.setTransformControlsVisible(false);
+        this.transformControls.dispose?.();
+        this.transformControls = undefined;
+      }
       this.sceneRenderEffect?.destroy();
       this.sceneRenderEffect = undefined;
       return;
@@ -5020,6 +5060,8 @@ export class EditorComponent implements OnInit, OnDestroy {
     this.sceneRenderEffect = undefined;
     if (this.transformControls) {
       this.sceneBundle.scene.remove(this.transformControls as unknown as THREE.Object3D);
+      this.transformControls.detach();
+      this.setTransformControlsVisible(false);
       this.transformControls.dispose?.();
       this.transformControls = undefined;
     }
