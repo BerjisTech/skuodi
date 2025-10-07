@@ -20,7 +20,7 @@ describe('LivekitClientService', () => {
     const req = httpMock.expectOne('/rtc/token');
     expect(req.request.method).toBe('POST');
     req.flush({ url: 'wss://example', token: 'fake' });
-    await expectAsync(promise).toBeResolved();
+    await promise;
     httpMock.verify();
   });
 });
