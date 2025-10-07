@@ -2526,6 +2526,7 @@ export class EditorComponent implements OnInit, OnDestroy {
   private sceneCanvas?: ElementRef<HTMLCanvasElement>;
   private readonly injector = inject(Injector);
   private transformControls?: TransformControls;
+  private transformControlsHelper?: THREE.Object3D;
   private readonly raycaster = new THREE.Raycaster();
   private scenePointerHandlers?: {
     down: (event: PointerEvent) => void;
@@ -2666,8 +2667,10 @@ export class EditorComponent implements OnInit, OnDestroy {
         this.activeTransformElementId = elementId;
       }
     });
-    bundle.scene.add(transformControls as unknown as THREE.Object3D);
+    const helper = transformControls.getHelper() as unknown as THREE.Object3D;
+    bundle.scene.add(helper);
     this.transformControls = transformControls;
+    this.transformControlsHelper = helper;
     this.setTransformControlsVisible(false);
     this.updateTransformControlMode(this.transformMode());
 
@@ -4997,12 +5000,11 @@ export class EditorComponent implements OnInit, OnDestroy {
     if (!this.transformControls) {
       return;
     }
-    const target = this.transformControls as unknown as THREE.Object3D;
-    target.visible = visible;
     this.transformControls.enabled = visible;
-    target.children.forEach((child) => {
-      child.visible = visible;
-    });
+    const helper = this.transformControlsHelper;
+    if (helper) {
+      helper.visible = visible;
+    }
   }
 
   private syncSceneElements() {
@@ -5090,6 +5092,7 @@ export class EditorComponent implements OnInit, OnDestroy {
         this.transformControls.dispose?.();
         this.transformControls = undefined;
       }
+      this.transformControlsHelper = undefined;
       this.sceneRenderEffect?.destroy();
       this.sceneRenderEffect = undefined;
       return;
@@ -5097,11 +5100,14 @@ export class EditorComponent implements OnInit, OnDestroy {
     this.sceneRenderEffect?.destroy();
     this.sceneRenderEffect = undefined;
     if (this.transformControls) {
-      this.sceneBundle.scene.remove(this.transformControls as unknown as THREE.Object3D);
       this.transformControls.detach();
       this.setTransformControlsVisible(false);
       this.transformControls.dispose?.();
       this.transformControls = undefined;
+    }
+    if (this.transformControlsHelper) {
+      this.sceneBundle.scene.remove(this.transformControlsHelper);
+      this.transformControlsHelper = undefined;
     }
     for (const object of this.elementMeshes.values()) {
       this.sceneBundle.scene.remove(object);
