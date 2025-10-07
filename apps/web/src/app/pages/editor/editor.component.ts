@@ -2650,7 +2650,6 @@ export class EditorComponent implements OnInit, OnDestroy {
     addGrid(bundle.scene);
     const transformControls = new TransformControls(bundle.camera, bundle.renderer.domElement);
     transformControls.setMode(this.transformMode());
-    (transformControls as unknown as THREE.Object3D).visible = false;
     transformControls.addEventListener('dragging-changed', (event) => {
       bundle.controls.enabled = !event.value;
       if (event.value) {
@@ -2669,6 +2668,7 @@ export class EditorComponent implements OnInit, OnDestroy {
     });
     bundle.scene.add(transformControls as unknown as THREE.Object3D);
     this.transformControls = transformControls;
+    this.setTransformControlsVisible(false);
     this.updateTransformControlMode(this.transformMode());
 
     this.attachScenePointerHandlers(bundle.renderer.domElement);
@@ -2939,12 +2939,10 @@ export class EditorComponent implements OnInit, OnDestroy {
     }
     const nextPosition = {
       x: Number(object.position.x.toFixed(3)),
-      y: Number((-object.position.z).toFixed(3)),
+      y: Number(object.position.z.toFixed(3)),
     };
     const flipRotation = element.flipFrontBack ? Math.PI : 0;
-    const worldRotation = object.rotation.y - flipRotation;
-    const planRotationRad = -worldRotation;
-    const planRotationDeg = THREE.MathUtils.radToDeg(planRotationRad);
+    const planRotationDeg = THREE.MathUtils.radToDeg(object.rotation.y - flipRotation);
     const normalizedRotation = ((planRotationDeg % 360) + 360) % 360;
     const nextRotation = Number(normalizedRotation.toFixed(2));
     const nextWidth = Math.max(0.05, Number((element.width * object.scale.x).toFixed(3)));
@@ -3812,7 +3810,7 @@ export class EditorComponent implements OnInit, OnDestroy {
     if (preset === 'top') {
       camera.position.set(0, 12, 0.0001);
       controls.target.set(0, 0, 0);
-      camera.up.set(0, 0, -1);
+      camera.up.set(0, 0, 1);
     } else if (preset === 'iso' || preset === 'reset') {
       camera.position.set(6, 6, 6);
       controls.target.set(0, 0, 0);
@@ -4999,7 +4997,12 @@ export class EditorComponent implements OnInit, OnDestroy {
     if (!this.transformControls) {
       return;
     }
-    (this.transformControls as unknown as THREE.Object3D).visible = visible;
+    const target = this.transformControls as unknown as THREE.Object3D;
+    target.visible = visible;
+    this.transformControls.enabled = visible;
+    target.children.forEach((child) => {
+      child.visible = visible;
+    });
   }
 
   private syncSceneElements() {
@@ -5439,9 +5442,8 @@ export class EditorComponent implements OnInit, OnDestroy {
 
     const centerX = (start.x + end.x) / 2;
     const centerY = (start.y + end.y) / 2;
-    const centerZ = -centerY;
-    group.position.set(centerX, floor.elevation + wall.baseElevation + wall.height / 2, centerZ);
-    const angle = Math.atan2(-dy, dx);
+    group.position.set(centerX, floor.elevation + wall.baseElevation + wall.height / 2, centerY);
+    const angle = Math.atan2(dy, dx);
     group.rotation.set(0, angle, 0);
 
     return group;
@@ -5450,10 +5452,10 @@ export class EditorComponent implements OnInit, OnDestroy {
   private applyTransform(anchor: THREE.Object3D, element: EditorElement) {
     const visual = anchor.userData?.['visual'] as THREE.Object3D | undefined;
     const anchorY = this.resolveElementAnchorElevation(element);
-    anchor.position.set(element.position.x, anchorY, -element.position.y);
+    anchor.position.set(element.position.x, anchorY, element.position.y);
     anchor.scale.set(1, 1, 1);
     const rotationRad = THREE.MathUtils.degToRad(element.rotation ?? 0);
-    const worldRotation = -rotationRad;
+    const worldRotation = rotationRad;
     const flipRotation = element.flipFrontBack ? Math.PI : 0;
     anchor.rotation.set(0, worldRotation + flipRotation, 0);
     if (visual) {
